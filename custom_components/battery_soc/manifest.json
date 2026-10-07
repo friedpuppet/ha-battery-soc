@@ -1,0 +1,12 @@
+{
+  "domain": "battery_soc",
+  "name": "Battery SoC",
+  "codeowners": ["@friedpuppet"],
+  "config_flow": true,
+  "documentation": "https://github.com/friedpuppet/ha-battery-soc",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/friedpuppet/ha-battery-soc/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

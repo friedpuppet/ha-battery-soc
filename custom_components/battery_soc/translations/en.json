@@ -1,0 +1,137 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Battery SoC",
+        "description": "Track a battery's state of charge by counting its current, re-anchored at full and empty.",
+        "data": {
+          "name": "Name",
+          "current_entity": "Battery current sensor",
+          "voltage_entity": "Battery voltage sensor",
+          "full_entity": "Battery full sensor",
+          "grid_entity": "Grid sensor",
+          "nominal_capacity_ah": "Nominal capacity",
+          "nominal_voltage": "Nominal voltage",
+          "initial_soc": "Initial state of charge"
+        },
+        "data_description": {
+          "current_entity": "Signed current, positive while charging (e.g. the inverter's battery charge current).",
+          "voltage_entity": "Used for power/energy and for the empty/full voltage rules.",
+          "full_entity": "Optional binary sensor that turns on when the battery is full, e.g. the inverter's float-charging flag. Its turning on sets 100 %; while it stays on the current is ignored.",
+          "grid_entity": "Optional binary sensor, on while the utility grid is present. Used to tell an inverter shutdown at empty from a telemetry dropout.",
+          "nominal_capacity_ah": "Rated capacity; the learned capacity starts from it.",
+          "nominal_voltage": "Used for energy only while the voltage sensor has never reported.",
+          "initial_soc": "Starting point until the first full/empty anchor."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This current sensor is already used by another entry."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "current_entity": "Battery current sensor",
+          "voltage_entity": "Battery voltage sensor",
+          "full_entity": "Battery full sensor",
+          "grid_entity": "Grid sensor",
+          "nominal_capacity_ah": "Nominal capacity",
+          "nominal_voltage": "Nominal voltage",
+          "empty_voltage": "Empty below",
+          "empty_delay_s": "Empty voltage delay",
+          "shutdown_delay_s": "Shutdown detection delay",
+          "low_voltage_hint": "Low battery voltage",
+          "low_soc_hint": "Low state of charge",
+          "full_voltage": "Full above",
+          "tail_current_a": "Tail current",
+          "full_delay_s": "Full detection delay",
+          "max_gap_s": "Bridge sensor dropouts up to",
+          "learn_capacity": "Learn capacity",
+          "learn_efficiency": "Learn charge efficiency"
+        },
+        "data_description": {
+          "current_entity": "Signed current, positive while charging (e.g. the inverter's battery charge current).",
+          "voltage_entity": "Used for power/energy and for the empty/full voltage rules.",
+          "full_entity": "Optional binary sensor that turns on when the battery is full, e.g. the inverter's float-charging flag. Its turning on sets 100 %; while it stays on the current is ignored.",
+          "grid_entity": "Optional binary sensor, on while the utility grid is present. Used to tell an inverter shutdown at empty from a telemetry dropout.",
+          "nominal_capacity_ah": "Rated capacity; the learned capacity starts from it.",
+          "nominal_voltage": "Used for energy only while the voltage sensor has never reported.",
+          "empty_voltage": "Battery counts as empty when the voltage stays at or below this while discharging.",
+          "empty_delay_s": "How long the voltage must stay low.",
+          "shutdown_delay_s": "With no grid and a low battery, the current sensor unavailable this long means the inverter has switched off at empty.",
+          "low_voltage_hint": "Shutdown detection only applies if the last voltage was at or below this…",
+          "low_soc_hint": "…or the computed state of charge was at or below this.",
+          "full_voltage": "Only without a full sensor: full when the voltage is at or above this…",
+          "tail_current_a": "…and the current is within ± this…",
+          "full_delay_s": "…for this long.",
+          "max_gap_s": "While the current sensor is unavailable, its last value is used for at most this long.",
+          "learn_capacity": "Measure the usable capacity on every full → empty discharge.",
+          "learn_efficiency": "Measure Ah out / Ah in on every cycle that ends at full."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "state_of_charge": {
+        "name": "State of charge"
+      },
+      "remaining_charge": {
+        "name": "Remaining charge"
+      },
+      "capacity": {
+        "name": "Capacity"
+      },
+      "state_of_health": {
+        "name": "State of health"
+      },
+      "charge_efficiency": {
+        "name": "Charge efficiency"
+      },
+      "power": {
+        "name": "Power"
+      },
+      "charge_power": {
+        "name": "Charge power"
+      },
+      "discharge_power": {
+        "name": "Discharge power"
+      },
+      "energy_charged": {
+        "name": "Energy charged"
+      },
+      "energy_discharged": {
+        "name": "Energy discharged"
+      },
+      "status": {
+        "name": "Status",
+        "state": {
+          "charging": "Charging",
+          "discharging": "Discharging",
+          "idle": "Idle",
+          "full": "Full",
+          "off": "Off (inverter shut down)"
+        }
+      }
+    },
+    "button": {
+      "mark_full": {
+        "name": "Mark full"
+      }
+    }
+  },
+  "services": {
+    "set_soc": {
+      "name": "Set state of charge",
+      "description": "Set the state of charge by hand (not an anchor; nothing is learned).",
+      "fields": {
+        "soc": {
+          "name": "State of charge",
+          "description": "New state of charge, %."
+        }
+      }
+    }
+  }
+}
