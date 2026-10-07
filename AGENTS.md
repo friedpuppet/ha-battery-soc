@@ -24,4 +24,21 @@ the never-reset Riemann sum `sensor.batareia_integrovanii_strum` / 200 × 100 an
 
 ## Status
 
-- Code and tests are done (`uv run pytest`: 21 green against HA 2026.8.3). Not yet released or installed.
+- Code and tests are done (`uv run pytest`: 21 green against HA 2026.8.3). CI (hassfest + pytest) green.
+  Latest release **v0.1.0**. Bump `manifest.json` `version` (and `pyproject.toml`) with each release.
+- Repo: **[friedpuppet/ha-battery-soc](https://github.com/friedpuppet/ha-battery-soc)** (public, for HACS only;
+  same "personal project" rules as `../grid-load-shedding/AGENTS.md`). The token is the **same** fine-grained PAT
+  as for grid-load-shedding: `~/.config/github/token-grid-load-shedding` (the user added this repo to it).
+  Push: `git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$(cat ~/.config/github/token-grid-load-shedding)" | base64 -w0)" push`
+- **Installed on the live HA (2026-10-07)** via HACS custom repository (HACS repo id `1408776912`), entry
+  «Батарея» `01M4B7472BRYY2NS0XTGE77E6A`. Sources: `sensor.inverter_battery_charge_current`,
+  `sensor.inverter_battery_voltage`, full = `binary_sensor.inverter_float_charging`, grid =
+  `binary_sensor.e_elektrika`; 200 Ah / 25.6 V; started at 100 % on float.
+  - Entity ids: `sensor.batareia_{state_of_charge,remaining_charge,capacity,state_of_health,charge_efficiency,
+    power,charge_power,discharge_power,energy_charged,energy_discharged,status}`, `button.batareia_mark_full`.
+  - **Updating**: release, then WS `hacs/repository/download` with `repository: "1408776912"`,
+    `version: "vX.Y.Z"`, then `ha core check` + `ha core restart`.
+  - **Running in parallel with the old helpers** until a real outage + recharge confirms it (SoC drops by about
+    Ah_out/200, back to 100 % when float turns on, efficiency learned). Only then: switch the Energy dashboard and
+    `lovelace.dashboard_nvertor` to the new entities and delete the 11 old config entries (list in the plan; ask
+    the user again before deleting the Atorch-based «Живлення від батареї» / «Енергія від батареї»).
