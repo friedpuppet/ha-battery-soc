@@ -10,6 +10,8 @@ CONF_VOLTAGE_ENTITY: Final = "voltage_entity"
 CONF_FULL_ENTITY: Final = "full_entity"  # optional binary_sensor, on = full (e.g. float charging)
 CONF_GRID_ENTITY: Final = "grid_entity"  # optional binary_sensor, on = utility grid present
 CONF_LOAD_ENTITY: Final = "load_power_entity"  # optional sensor, W drawn by the load (inverter output)
+CONF_COUNTERS_ENTITY: Final = "counters_entity"  # optional: JSON totals kept on the inverter's ESP
+CONF_BOOT_ENTITY: Final = "boot_entity"  # optional: JSON snapshot of those totals at the ESP's boot
 CONF_NOMINAL_CAPACITY: Final = "nominal_capacity_ah"
 CONF_NOMINAL_VOLTAGE: Final = "nominal_voltage"
 
@@ -59,6 +61,7 @@ DEFAULT_LOAD_RATIO: Final = 1.0  # battery W per load W
 LOAD_RATIO_RANGE: Final = (0.8, 1.5)
 LOAD_LEARN_MIN_AH: Final = 10.0  # discharged per outage to learn the load ratio
 LOAD_ON_POWER: Final = 10.0  # W; a load sensor above this means the inverter still runs
+COUNTER_FIELDS: Final = ("ai", "ao", "si", "so", "fa", "fs", "wi", "wo")
 IDLE_CURRENT: Final = 0.5  # A; below this the battery counts as idle
 TICK_SECONDS: Final = 10
 

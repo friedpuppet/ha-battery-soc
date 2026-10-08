@@ -28,6 +28,8 @@ VOLTAGE = "sensor.inverter_battery_voltage"
 FULL = "binary_sensor.inverter_float_charging"
 GRID = "binary_sensor.grid"
 LOAD = "sensor.load_power"
+COUNTERS = "sensor.inverter_battery_counters"
+BOOT = "sensor.inverter_battery_boot"
 
 SOC = "sensor.battery_state_of_charge"
 REMAINING = "sensor.battery_remaining_charge"

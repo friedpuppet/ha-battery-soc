@@ -21,12 +21,19 @@ EMA and ignore cycles that are too short or give implausible values.
 Short sensor dropouts are bridged by extrapolating the last current for ``max_gap`` seconds.
 Longer ones during an outage are counted from the load power sensor, scaled by a learned
 battery/load power ratio.
+
+**Counter mode**: the inverter's ESP integrates the current itself into monotonic totals
+(Ah/seconds/Wh in and out, float Ah/seconds) that survive its reboots. The tracker then
+applies the differences between the totals it last saw (persisted) and the new ones, so
+nothing is lost while Home Assistant can't see the ESP. "Empty" then comes from the ESP
+reporting a power-on boot while the battery was low, not from the telemetry vanishing.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
+import json
 import logging
 from typing import Any
 
@@ -42,6 +49,8 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CAPACITY_RANGE,
+    CONF_BOOT_ENTITY,
+    CONF_COUNTERS_ENTITY,
     CONF_CURRENT_ENTITY,
     CONF_EMPTY_DELAY,
     CONF_EMPTY_VOLTAGE,
@@ -61,6 +70,7 @@ from .const import (
     CONF_SHUTDOWN_DELAY,
     CONF_TAIL_CURRENT,
     CONF_VOLTAGE_ENTITY,
+    COUNTER_FIELDS,
     DEFAULT_EFFICIENCY,
     DEFAULT_LOAD_RATIO,
     DEFAULTS,
@@ -98,6 +108,17 @@ def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
 
+def _counters(state: str | None) -> dict[str, float] | None:
+    """Parse the ESP's JSON totals; None if unavailable or malformed."""
+    try:
+        data = json.loads(state)  # type: ignore[arg-type]
+        return {"n": int(data["n"]), **{k: float(data[k]) for k in COUNTER_FIELDS}} | (
+            {"pon": int(data["pon"])} if "pon" in data else {}
+        )
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
 class BatteryTracker:
     """Track the remaining charge of one battery."""
 
@@ -112,6 +133,8 @@ class BatteryTracker:
         self.full_entity: str | None = opts.get(CONF_FULL_ENTITY) or None
         self.grid_entity: str | None = opts.get(CONF_GRID_ENTITY) or None
         self.load_entity: str | None = opts.get(CONF_LOAD_ENTITY) or None
+        self.counters_entity: str | None = opts.get(CONF_COUNTERS_ENTITY) or None
+        self.boot_entity: str | None = opts.get(CONF_BOOT_ENTITY) or None
         self.nominal_ah = float(opts[CONF_NOMINAL_CAPACITY])
         self.nominal_v = float(opts[CONF_NOMINAL_VOLTAGE])
         self.empty_voltage = float(opts[CONF_EMPTY_VOLTAGE])
@@ -144,6 +167,7 @@ class BatteryTracker:
         self.last_empty: datetime | None = None
         self.holding = False  # full sensor on: current is taken as 0
         self.off = False  # inverter switched off at empty; nothing flows until it is back
+        self.counters_seen: dict[str, float] | None = None  # ESP totals already applied
 
         # Live inputs
         self.current: float | None = None  # raw, before the offset correction
@@ -163,6 +187,10 @@ class BatteryTracker:
         self._listeners: list[Callable[[], None]] = []
         self._unsubs: list[CALLBACK_TYPE] = []
         self._timers: dict[str, CALLBACK_TYPE] = {}
+
+    @property
+    def counter_mode(self) -> bool:
+        return self.counters_entity is not None
 
     # ----- derived values -------------------------------------------------
 
@@ -228,7 +256,7 @@ class BatteryTracker:
 
     def _estimated_current(self) -> float | None:
         """Battery current from the load power, while the grid is out."""
-        if self.load is None or not self._grid_absent():
+        if self.counter_mode or self.load is None or not self._grid_absent():
             return None
         return -max(self.load, 0.0) * self.load_ratio / self._volts()
 
@@ -253,6 +281,7 @@ class BatteryTracker:
         self.last_empty = dt_util.parse_datetime(data["last_empty"]) if data["last_empty"] else None
         self.holding = data["holding"]
         self.off = data["off"]
+        self.counters_seen = data.get("counters_seen") if self.counter_mode else None
         if data["nominal_ah"] != self.nominal_ah:
             # A different battery (or a corrected rating): start learning from the new nominal.
             soc = self.soc
@@ -278,6 +307,7 @@ class BatteryTracker:
             "last_empty": _iso(self.last_empty),
             "holding": self.holding,
             "off": self.off,
+            "counters_seen": self.counters_seen,
         }
 
     @callback
@@ -303,8 +333,14 @@ class BatteryTracker:
         if self._state(self.grid_entity) == STATE_OFF:
             self.holding = False  # no float without the grid
 
+        self._sync_counters()  # catch up on whatever the ESP counted while we were away
+
         entities = [self.current_entity, self.voltage_entity]
-        entities += [e for e in (self.full_entity, self.grid_entity, self.load_entity) if e]
+        entities += [
+            e
+            for e in (self.full_entity, self.grid_entity, self.load_entity, self.counters_entity, self.boot_entity)
+            if e
+        ]
         self._unsubs.append(async_track_state_change_event(self.hass, entities, self._async_on_change))
         self._unsubs.append(
             async_track_time_interval(self.hass, self._async_tick, timedelta(seconds=TICK_SECONDS))
@@ -372,6 +408,8 @@ class BatteryTracker:
             self._on_voltage(_number(state))
         elif entity_id == self.load_entity:
             self.load = _number(state)
+        elif entity_id in (self.counters_entity, self.boot_entity):
+            self._sync_counters()
         elif entity_id == self.full_entity:
             if state == STATE_ON and not self.holding:
                 self._full_event("full sensor turned on")
@@ -423,6 +461,8 @@ class BatteryTracker:
     @callback
     def _check_shutdown(self, now: datetime) -> None:
         """Telemetry gone for a while, no grid, battery low, load dark: the inverter is off."""
+        if self.counter_mode:
+            return  # the ESP's power-on boot tells us instead (see _sync_counters)
         if self.off or self.current is not None or self._current_lost is None:
             return
         if now - self._current_lost < self.shutdown_delay:
@@ -465,6 +505,7 @@ class BatteryTracker:
     def _async_empty_expired(self, _now: datetime) -> None:
         self._timers.pop("empty", None)
         self._accrue(dt_util.utcnow())
+        self._sync_counters()
         self._empty_event(f"voltage <= {self.empty_voltage} V for {self.empty_delay:g} s")
         self._changed()
 
@@ -477,10 +518,69 @@ class BatteryTracker:
 
     # ----- counting -------------------------------------------------------
 
+    # ----- counter mode -----------------------------------------------------
+
+    @callback
+    def _sync_counters(self) -> None:
+        """Apply whatever the ESP's totals gained since we last saw them."""
+        if not self.counter_mode:
+            return
+        counters = _counters(self._state(self.counters_entity))
+        if counters is None:
+            return
+        if self.counters_seen is None:
+            self.counters_seen = counters  # first sight: start from here
+            return
+        if counters["n"] != self.counters_seen["n"]:
+            boot = _counters(self._state(self.boot_entity))
+            if boot is None or boot["n"] != counters["n"]:
+                if self.boot_entity:
+                    return  # the boot snapshot comes with the reconnect; wait for it
+                boot = None
+            self._on_esp_boot(boot, counters)
+        self._apply_counters(counters)
+
+    def _on_esp_boot(self, boot: dict[str, float] | None, counters: dict[str, float]) -> None:
+        """The ESP rebooted: count up to its boot snapshot, then maybe anchor empty."""
+        if boot is None:
+            _LOGGER.info("ESP rebooted (boot %d), no boot snapshot", counters["n"])
+            return
+        self._apply_counters(boot)
+        if boot.get("pon") and self._was_low():
+            # A power-on boot means the inverter (and its ESP) had no power; with the
+            # battery low, that is the inverter switching itself off at cut-off.
+            self._empty_event("inverter was off (power-on boot after running low)")
+        else:
+            _LOGGER.info("ESP rebooted (boot %d, power-on %s)", boot["n"], bool(boot.get("pon")))
+        self.counters_seen = {"n": boot["n"], **{k: boot[k] for k in COUNTER_FIELDS}}
+
+    def _apply_counters(self, counters: dict[str, float]) -> None:
+        seen = self.counters_seen
+        assert seen is not None
+        delta = {k: counters[k] - seen[k] for k in COUNTER_FIELDS}
+        self.counters_seen = {"n": counters["n"], **{k: counters[k] for k in COUNTER_FIELDS}}
+        if any(delta[k] < -1e-6 for k in COUNTER_FIELDS if k != "fa"):  # fa is signed
+            # Restored from an older flash copy (crash or power loss): those counts are gone.
+            _LOGGER.warning("Battery counters went back (boot %d); starting from the new totals", counters["n"])
+            return
+        if self.off:
+            return
+        offset_ah_per_s = self.current_offset / 3600  # the shunt's offset, per second of flow
+        self._apply(
+            max(delta["ai"] - offset_ah_per_s * delta["si"], 0.0),
+            max(delta["ao"] + offset_ah_per_s * delta["so"], 0.0),
+            delta["wi"] / 1000,
+            delta["wo"] / 1000,
+        )
+        self._float_as += delta["fa"] * 3600
+        self._float_s += delta["fs"]
+        if self._float_s >= OFFSET_MAX_SECONDS:
+            self._learn_offset()
+
     @callback
     def _accrue(self, now: datetime) -> None:
         start, self._last_ts = self._last_ts, now
-        if self.off:
+        if self.off or self.counter_mode:
             return
         if self.holding:
             if self.current is not None:
@@ -512,13 +612,20 @@ class BatteryTracker:
         ah = current * seconds / 3600
         kwh = abs(ah) * self._volts() / 1000
         if ah > 0:
-            self.cycle_in_ah += ah
-            self.energy_in_kwh += kwh
-            self._add(ah * self.efficiency)
+            self._apply(ah, 0.0, kwh, 0.0)
         else:
-            self.cycle_out_ah -= ah
-            self.energy_out_kwh += kwh
-            self._add(ah)
+            self._apply(0.0, -ah, 0.0, kwh)
+
+    def _apply(self, ah_in: float, ah_out: float, kwh_in: float, kwh_out: float) -> None:
+        """Charge in (raw, before efficiency) and out, in Ah; energy in kWh."""
+        if ah_in > 0:
+            self.cycle_in_ah += ah_in
+            self.energy_in_kwh += kwh_in
+            self._add(ah_in * self.efficiency)
+        if ah_out > 0:
+            self.cycle_out_ah += ah_out
+            self.energy_out_kwh += kwh_out
+            self._add(-ah_out)
 
     def _add(self, delta_ah: float) -> None:
         value = self.remaining_ah + delta_ah
@@ -552,6 +659,8 @@ class BatteryTracker:
 
     @callback
     def _full_event(self, reason: str) -> None:
+        if self.counter_mode and self.counters_seen is not None:
+            self._sync_counters()  # what the ESP counted up to now belongs to the cycle that ends here
         if self.learn_efficiency and self.cycle_in_ah >= LEARN_MIN_CYCLE * self.capacity_ah:
             sample = None
             if self.anchor == ANCHOR_FULL and self.cycle_out_ah >= LEARN_MIN_CYCLE * self.capacity_ah:

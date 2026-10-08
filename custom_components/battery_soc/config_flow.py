@@ -14,6 +14,8 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_BOOT_ENTITY,
+    CONF_COUNTERS_ENTITY,
     CONF_CURRENT_ENTITY,
     CONF_EMPTY_DELAY,
     CONF_EMPTY_VOLTAGE,
@@ -71,6 +73,12 @@ def _sources_schema(defaults: dict[str, Any]) -> dict:
         ),
         _optional_entity(CONF_LOAD_ENTITY, defaults): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="sensor", device_class=SensorDeviceClass.POWER)
+        ),
+        _optional_entity(CONF_COUNTERS_ENTITY, defaults): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor")
+        ),
+        _optional_entity(CONF_BOOT_ENTITY, defaults): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor")
         ),
         vol.Required(CONF_NOMINAL_CAPACITY, default=d(CONF_NOMINAL_CAPACITY)): _number("Ah", 10000, 0.1),
         vol.Required(CONF_NOMINAL_VOLTAGE, default=d(CONF_NOMINAL_VOLTAGE)): _number("V", 1000, 0.1),

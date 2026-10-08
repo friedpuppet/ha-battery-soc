@@ -16,6 +16,8 @@ re-anchors the count at the two moments it can actually detect: **full** and **e
 - **Grid** (optional binary sensor): on while utility power is present.
 - **Load power** (optional sensor, W): what the load draws from the inverter output, e.g. a meter
   on the inverter's AC output. Used while the battery telemetry is gone during an outage.
+- **Battery counters** and **boot snapshot** (optional text sensors, JSON): totals kept by the
+  inverter's own ESP. See *Counter mode*.
 - **Nominal capacity** (Ah) and **nominal voltage**.
 
 ## How it counts
@@ -53,6 +55,32 @@ re-anchors the count at the two moments it can actually detect: **full** and **e
   inverter is off, nothing is counted and Status is `off`. Once the telemetry is back, counting
   continues from 0 %.
 - **Low voltage**: voltage ≤ *empty voltage* while discharging for *empty delay*.
+
+## Counter mode
+
+When the counters entity is set, the battery is not counted from the current sensor. The device
+that reads the inverter (here an ESPHome ESP8266, config in the author's `esp-inverter`) integrates
+the current itself into monotonic totals that survive its reboots:
+
+```
+{"n": 12, "ai": …, "ao": …, "si": …, "so": …, "fa": …, "fs": …, "wi": …, "wo": …}
+```
+
+`n` is the boot number. `ai`/`ao` are Ah charged/discharged and `si`/`so` the seconds of each, all
+off float. `fa`/`fs` are raw Ah and seconds on float. `wi`/`wo` are Wh. The boot snapshot has the
+same fields as they were at boot, plus `pon: 1` for a power-on boot.
+
+- The tracker applies the differences from the totals it last saw (persisted). Whatever happened
+  while Home Assistant was down or could not see the ESP is caught up on the next update.
+- The current offset is subtracted using the seconds (`offset × si` / `so`) and learned from
+  `fa`/`fs`.
+- **Empty**: a power-on boot of the ESP while the battery was low (last voltage ≤ *low voltage* or
+  SoC ≤ *low SoC*). The ESP is powered by the inverter, so a power-on means the inverter had been
+  off. Telemetry disappearing alone never means empty in this mode, and there is no load-power
+  fallback. The low-voltage rule and the full sensor still apply.
+- Totals that go back (the ESP restored an older copy after a crash or a power loss) are taken as
+  the new starting point; the lost part is not counted.
+- Power and Status still come from the live current and voltage.
 
 ## Learning
 
