@@ -1,9 +1,24 @@
 # battery-soc — Home Assistant integration
 
-Subproject of `homeassistant` (see `../AGENTS.md`). This is the HA custom integration
-**`battery_soc`** ("Battery SoC"): the state of charge of the inverter battery, counted from its current
-and re-anchored at full/empty, with capacity/efficiency learning. Behaviour is in `README.md`.
-Implementation plan: `~/.claude/plans/proud-wiggling-shamir.md`.
+Subproject of `homeassistant`. This is the HA custom integration **`battery_soc`** ("Battery SoC"): the state
+of charge of the inverter battery, counted from its current and re-anchored at full/empty, with
+capacity/efficiency learning. Behaviour is in `README.md`; the plan and what is still pending are in `PLAN.md`.
+
+## Shared Home Assistant context (read before touching the live instance)
+
+This directory only holds the battery work. Everything about the HA host itself lives one level up. Read it
+first, even when the session was started here:
+
+- `../AGENTS.md`: host, SSH (`ssh root@homeassistant`), Supervised install, `ha core check` / `ha core restart`,
+  REST/WS API at `https://ha.yells.kyiv.ua/api/` with the token in `~/.config/homeassistant/token` (HA user
+  "Claude"), `.bak-<timestamp>` backup convention, the Atorch meter.
+- `../electricity.md`: the power setup (inverter, grid sensor `binary_sensor.e_elektrika`, load shedding,
+  dashboards).
+- `../grid-load-shedding/AGENTS.md`: the sibling integration this one mirrors (layout, release, HACS update via WS).
+- `../esp-inverter/AGENTS.md`: the inverter's ESP, the source of `sensor.inverter_battery_*` and
+  `binary_sensor.inverter_float_charging` (it drops off Wi-Fi now and then).
+
+Keep battery details here and in `PLAN.md`; the battery section in `../AGENTS.md` stays a short pointer.
 
 It replaces the hand-made UI helpers from February 2026, where `sensor.batareia_vidsotok_zariadu` =
 the never-reset Riemann sum `sensor.batareia_integrovanii_strum` / 200 × 100 and had drifted to −3735 %.
@@ -40,5 +55,5 @@ the never-reset Riemann sum `sensor.batareia_integrovanii_strum` / 200 × 100 an
     `version: "vX.Y.Z"`, then `ha core check` + `ha core restart`.
   - **Running in parallel with the old helpers** until a real outage + recharge confirms it (SoC drops by about
     Ah_out/200, back to 100 % when float turns on, efficiency learned). Only then: switch the Energy dashboard and
-    `lovelace.dashboard_nvertor` to the new entities and delete the 11 old config entries (list in the plan; ask
+    `lovelace.dashboard_nvertor` to the new entities and delete the 11 old config entries (list in `PLAN.md`; ask
     the user again before deleting the Atorch-based «Живлення від батареї» / «Енергія від батареї»).
