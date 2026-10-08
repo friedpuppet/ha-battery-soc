@@ -76,6 +76,9 @@ Backups `.storage/{core.config_entries,core.entity_registry,energy,lovelace.dash
   `01KJF0Y7EZWXNKRYZZBHGXKNMJ`, `01KJF0ZV5G77M6RTGESFNE99W1`, `01KJYFF35MXCGFB68DC9SNFBXS`,
   `01KH01G2DXX51B0ZQ45JJ4N90J`, `01KGTKSW07WBC2HK8RC7P1B292`. The orphaned old Energy net-power entity was removed
   from the registry.
+- Missed by the pre-delete grep (it skipped `core.config_entries`): template «Споживання інвертором»
+  `01KJJGTD2XB8GWWP1AHYBDC911` (`sensor.spozhivannia_invertorom`) used `sensor.batareia_potuzhnist_zariadu`.
+  It now uses `sensor.batareia_charge_power`. Next time also grep the options of other config entries.
 
 ## ⏳ Still to confirm on live data
 
