@@ -51,15 +51,17 @@ Live check done: SoC 100 % on float, Status `full`, power 0; `set_soc 50` → 50
 SoC 100 → 53.4 %, back to 100 % on float at 23:12. Two flaws found and fixed in v0.2.0:
 - Charge efficiency was not learned: Ah out / Ah in = 94.5 / 91.4 > 1, so the sample was rejected. The float
   current (mean −1.0…−1.2 A) is a shunt offset; v0.2.0 learns it on float and subtracts it everywhere.
-- Night of 2026-10-08: the ESP was gone 02:17–05:48 during an outage, the load ran on (Atorch 170–190 W), and
-  ~28 Ah went uncounted. The float hold also survived the unavailable float flag. v0.2.0: grid loss ends the hold,
-  the discharge is counted from `sensor.atorch_lichilnik_zhivlennia` × learned load ratio after `max_gap`, and
-  shutdown detection runs every tick and needs the load to be dark.
+- Night of 2026-10-08: all telemetry was gone 02:17–05:47, and nothing was counted. v0.2.0: grid loss ends the
+  hold, the discharge is counted from `sensor.atorch_lichilnik_zhivlennia` × learned load ratio after `max_gap`,
+  and shutdown detection runs every tick and needs the load to be dark.
+  **Correction (later investigation):** the cause was the HA box losing Ethernet, not the ESP. The grid was on
+  until ~03:20:45, so only ~03:20–05:47 ran from the battery, ~12–25 Ah. Atorch was unavailable too, so even
+  v0.2.0 would not have counted that night. The fallback still helps when only the ESP drops off.
 
 ## ✅ v0.2.0 (2026-10-08)
 
 Released, installed via HACS, option load power = `sensor.atorch_lichilnik_zhivlennia`. The SoC after that night
-is overstated by ~14 %; the next float anchor fixes it (no manual correction).
+is overstated by ~6–12 %; the next float anchor fixes it (no manual correction).
 
 ## ✅ Old helpers removed (2026-10-08)
 

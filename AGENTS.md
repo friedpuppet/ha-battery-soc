@@ -33,9 +33,14 @@ the never-reset Riemann sum `sensor.batareia_integrovanii_strum` / 200 × 100 an
   of ~1 kWh/day, so the current is held at 0 while float is on. The first full→full cycle (2026-10-07 evening)
   gave Ah out / Ah in = 94.5 / 91.4 > 1. Treating the float mean as a shunt offset gives ~0.976, so v0.2.0 learns
   the offset on float and subtracts it everywhere.
-- The inverter's ESP can drop off during an outage while the inverter keeps running (night of 2026-10-08,
-  02:17–05:48, Atorch showed 170–190 W the whole time). v0.2.0 counts such gaps from the Atorch load power, and
-  only treats telemetry loss as a shutdown when the load is dark too.
+- Night of 2026-10-08 (02:17–05:47 UTC) all LAN/Wi-Fi telemetry vanished. This was **not** the ESP: the HA box
+  itself lost Ethernet (`end0: Link is Down` 02:17:21, up 05:47:05). The grid was still on until ~03:20:45 (Zigbee
+  meter before the inverter, independent of LAN). After that the inverter ran from the battery, and the ESP
+  rebooted every 15 min (ESPHome `api: reboot_timeout` default) because no API client was connected. The Atorch
+  "170–190 W" was the graph bridging the gap; it was unavailable too. Along the way `e_elektrika` went falsely
+  `off` at 02:19:44 and `grid_load_shedding` shed 8 plugs while the grid was still on.
+- v0.2.0's load-power fallback only helps when the ESP alone drops off; when HA loses the LAN, Atorch is gone
+  too and nothing can be counted.
 - The battery is LiFePO4 24 V (8S), 200 Ah. Inverter settings: bulk 28.4 V, float 27.2 V, cut-off 23.2 V.
   Under load the voltage is flat (26.2–26.5 V).
 - **The inverter runs from its own battery and shuts off at cut-off, taking its ESP with it. HA and the router
