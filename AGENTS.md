@@ -49,8 +49,9 @@ the never-reset Riemann sum `sensor.batareia_integrovanii_strum` / 200 × 100 an
 
 ## Status
 
-- Code and tests are done (`uv run pytest`: 27 green against HA 2026.8.3). CI (hassfest + pytest) green.
-  Latest release **v0.2.0** (2026-10-08: load-power fallback, grid loss ends the float hold, learned shunt offset).
+- Code and tests are done (`uv run pytest`: 35 green against HA 2026.8.3). CI (hassfest + pytest) green.
+  Latest release **v0.3.0** (2026-10-08: counter mode, totals kept on the inverter's ESP, see README). v0.2.0 added the
+  load-power fallback, grid loss ending the float hold, and the learned shunt offset.
   Release via the GitHub API with the PAT below; `target_commitish` must be the full SHA. No `gh` CLI here. Bump `manifest.json` `version` (and `pyproject.toml`) with each release.
 - Repo: **[friedpuppet/ha-battery-soc](https://github.com/friedpuppet/ha-battery-soc)** (public, for HACS only;
   same "personal project" rules as `../grid-load-shedding/AGENTS.md`). The token is the **same** fine-grained PAT

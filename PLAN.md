@@ -89,3 +89,21 @@ Backups `.storage/{core.config_entries,core.entity_registry,energy,lovelace.dash
 - Next outage: `load_ratio` (State of charge attribute) moves off 1.0.
 - An ESP dropout during an outage: Status `discharging` with `estimated: true`, SoC keeps falling.
 - Capacity: only after a discharge to zero (the inverter switching itself off).
+
+## Hybrid: counters on the inverter's ESP (2026-10-08)
+
+Why: everything HA doesn't see is lost when it integrates the current itself (HA down, LAN lost like the night of
+2026-10-08, ESP Wi-Fi drop). Also, losing the LAN while the battery is low could fake "empty".
+
+- ✅ ESP firmware with the totals, flashed by OTA 2026-10-08 10:38 UTC (details: `../esp-inverter/AGENTS.md`).
+  Soft reboot via `button.inverter_restart` kept every total (boot 2, `pon` 0).
+- ✅ `sensor.inverter_battery_counters` / `_boot` excluded from the recorder (`configuration.yaml`, backup `.bak-<ts>`).
+- ✅ v0.3.0 released and installed. Counter mode is implemented and tested, but the live entry **still uses the current
+  sensor**.
+- ⏳ Compare for about a day. Δ(ai − ao) from the counters should match `battery_soc`'s own count
+  (`cycle_in_ah` / `cycle_out_ah`, Energy charged/discharged) within ~2 %.
+- ⏳ Then set the options of «Батарея»: counters = `sensor.inverter_battery_counters`, boot =
+  `sensor.inverter_battery_boot`. The first sight only sets the baseline, so the SoC does not jump.
+- ⏳ Cold start check: the user briefly cuts the D1 mini's power. Expect `pon` 1 and `r` 0 or 6, and no empty anchor
+  at a high SoC.
+- ⏳ Later: a real discharge to cut-off. Empty must appear only after the ESP comes back with `pon` 1.
