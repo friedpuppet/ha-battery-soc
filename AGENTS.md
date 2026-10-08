@@ -29,8 +29,13 @@ the never-reset Riemann sum `sensor.batareia_integrovanii_strum` / 200 × 100 an
   35.0 Ah out; recharging took 40.6 Ah in.
 - `binary_sensor.inverter_float_charging` goes off when the outage starts and on when the battery is full
   (~50 min after the grid returns). This flag is the full anchor.
-- On float, the current sensor reads −0.4…−3.3 A. Counting that would add a phantom discharge of ~1 kWh/day,
-  so the current is held at 0 while float is on.
+- On float, the current sensor reads −0.4…−3.3 A (mean −1.0…−1.2 A). Counting that would add a phantom discharge
+  of ~1 kWh/day, so the current is held at 0 while float is on. The first full→full cycle (2026-10-07 evening)
+  gave Ah out / Ah in = 94.5 / 91.4 > 1. Treating the float mean as a shunt offset gives ~0.976, so v0.2.0 learns
+  the offset on float and subtracts it everywhere.
+- The inverter's ESP can drop off during an outage while the inverter keeps running (night of 2026-10-08,
+  02:17–05:48, Atorch showed 170–190 W the whole time). v0.2.0 counts such gaps from the Atorch load power, and
+  only treats telemetry loss as a shutdown when the load is dark too.
 - The battery is LiFePO4 24 V (8S), 200 Ah. Inverter settings: bulk 28.4 V, float 27.2 V, cut-off 23.2 V.
   Under load the voltage is flat (26.2–26.5 V).
 - **The inverter runs from its own battery and shuts off at cut-off, taking its ESP with it. HA and the router
@@ -39,8 +44,9 @@ the never-reset Riemann sum `sensor.batareia_integrovanii_strum` / 200 × 100 an
 
 ## Status
 
-- Code and tests are done (`uv run pytest`: 21 green against HA 2026.8.3). CI (hassfest + pytest) green.
-  Latest release **v0.1.0**. Bump `manifest.json` `version` (and `pyproject.toml`) with each release.
+- Code and tests are done (`uv run pytest`: 27 green against HA 2026.8.3). CI (hassfest + pytest) green.
+  Latest release **v0.2.0** (2026-10-08: load-power fallback, grid loss ends the float hold, learned shunt offset).
+  Release via the GitHub API with the PAT below; `target_commitish` must be the full SHA. No `gh` CLI here. Bump `manifest.json` `version` (and `pyproject.toml`) with each release.
 - Repo: **[friedpuppet/ha-battery-soc](https://github.com/friedpuppet/ha-battery-soc)** (public, for HACS only;
   same "personal project" rules as `../grid-load-shedding/AGENTS.md`). The token is the **same** fine-grained PAT
   as for grid-load-shedding: `~/.config/github/token-grid-load-shedding` (the user added this repo to it).
@@ -48,12 +54,12 @@ the never-reset Riemann sum `sensor.batareia_integrovanii_strum` / 200 × 100 an
 - **Installed on the live HA (2026-10-07)** via HACS custom repository (HACS repo id `1408776912`), entry
   «Батарея» `01M4B7472BRYY2NS0XTGE77E6A`. Sources: `sensor.inverter_battery_charge_current`,
   `sensor.inverter_battery_voltage`, full = `binary_sensor.inverter_float_charging`, grid =
-  `binary_sensor.e_elektrika`; 200 Ah / 25.6 V; started at 100 % on float.
+  `binary_sensor.e_elektrika`, load power = `sensor.atorch_lichilnik_zhivlennia` (since v0.2.0); 200 Ah / 25.6 V;
+  started at 100 % on float.
   - Entity ids: `sensor.batareia_{state_of_charge,remaining_charge,capacity,state_of_health,charge_efficiency,
-    power,charge_power,discharge_power,energy_charged,energy_discharged,status}`, `button.batareia_mark_full`.
+    current_offset,power,charge_power,discharge_power,energy_charged,energy_discharged,status}`, `button.batareia_mark_full`.
   - **Updating**: release, then WS `hacs/repository/download` with `repository: "1408776912"`,
     `version: "vX.Y.Z"`, then `ha core check` + `ha core restart`.
-  - **Running in parallel with the old helpers** until a real outage + recharge confirms it (SoC drops by about
-    Ah_out/200, back to 100 % when float turns on, efficiency learned). Only then: switch the Energy dashboard and
-    `lovelace.dashboard_nvertor` to the new entities and delete the 11 old config entries (list in `PLAN.md`; ask
-    the user again before deleting the Atorch-based «Живлення від батареї» / «Енергія від батареї»).
+  - **The only battery source since 2026-10-08.** The Energy dashboard, `lovelace.dashboard_nvertor` and
+    `lovelace.potochna_energ_ia` use `sensor.batareia_*`. The 11 old helpers are deleted (list in `PLAN.md`; backups
+    `.storage/*.bak-20261008-083204`).

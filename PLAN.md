@@ -46,33 +46,41 @@ repository. Details in `AGENTS.md`.
 Released v0.1.0, installed via HACS, entry «Батарея» created, running **in parallel** with the old helpers.
 Live check done: SoC 100 % on float, Status `full`, power 0; `set_soc 50` → 50 %, "Mark full" → 100 %.
 
-## ⏳ Verification on a real outage
+## ✅ Verification on a real outage (2026-10-07 18:23–21:17)
 
-- SoC drops by about `Ah_out / 200` (the 2026-10-07 outage would have been ~17 %).
-- `Energy discharged` grows roughly like the Atorch meter (~1 kWh per 3 h).
-- At the float edge SoC = 100 % and `Charge efficiency` moves from 95 % toward ~86–90 %.
-- Capacity is only learned after a discharge to zero (the inverter switching itself off).
+SoC 100 → 53.4 %, back to 100 % on float at 23:12. Two flaws found and fixed in v0.2.0:
+- Charge efficiency was not learned: Ah out / Ah in = 94.5 / 91.4 > 1, so the sample was rejected. The float
+  current (mean −1.0…−1.2 A) is a shunt offset; v0.2.0 learns it on float and subtracts it everywhere.
+- Night of 2026-10-08: the ESP was gone 02:17–05:48 during an outage, the load ran on (Atorch 170–190 W), and
+  ~28 Ah went uncounted. The float hold also survived the unavailable float flag. v0.2.0: grid loss ends the hold,
+  the discharge is counted from `sensor.atorch_lichilnik_zhivlennia` × learned load ratio after `max_gap`, and
+  shutdown detection runs every tick and needs the load to be dark.
 
-## ⏳ Removing the old helpers (after verification, with the user's go-ahead)
+## ✅ v0.2.0 (2026-10-08)
 
-Before any change, back up `.storage/core.config_entries`, `core.entity_registry`, `energy`,
-`lovelace.dashboard_nvertor` as `.bak-<timestamp>`.
+Released, installed via HACS, option load power = `sensor.atorch_lichilnik_zhivlennia`. The SoC after that night
+is overstated by ~14 %; the next float anchor fixes it (no manual correction).
 
-1. Energy dashboard: battery source → `sensor.batareia_energy_discharged` / `_energy_charged` and
-   `_discharge_power` / `_charge_power` via WS `energy/save_prefs`. The old battery history in Energy will not be
-   joined to the new one.
-2. `lovelace.dashboard_nvertor`: swap references to the new entities via WS `lovelace/config` +
-   `lovelace/config/save`.
-3. Delete the old config entries via `DELETE /api/config/config_entries/entry/<id>`:
-   - SoC chain: `01KJDZD426Z63X7X633QQGCDFE` (Батарея відсоток заряду), `01KJDZ6MK6NRC21Z0JDCBQ9G95`
-     (Батарея інтегрований струм), `01KJE2VKCP1B7YF033GSTHP7AJ` (Батарея фактичний струм)
-   - Power/energy: `01KHYR62V75P4XG19ZNYGQ5JBX` (Інвертор потужність батареї),
-     `01KJE42SEM090E1PHP6GWFMCPD` / `01KJE45CWJW6XY918YKBS5PH01` (Батарея потужність заряду/розряду),
-     `01KJF0Y7EZWXNKRYZZBHGXKNMJ` / `01KJF0ZV5G77M6RTGESFNE99W1` (Батарея видана/спожита енергія),
-     `01KJYFF35MXCGFB68DC9SNFBXS` (Інвертор мінус батарея)
-   - Atorch-based, with "батарея" in the name: `01KH01G2DXX51B0ZQ45JJ4N90J` (Живлення від батареї),
-     `01KGTKSW07WBC2HK8RC7P1B292` (Енергія від батареї). These are really the load's consumption during an
-     outage, not battery parameters. **Ask the user again before deleting these two.**
-4. Before deleting, grep `automations.yaml`, `scripts.yaml`, `.storage/lovelace*` and `custom_components` once
-   more. As of 2026-10-07 only `lovelace.dashboard_nvertor` used the old entities.
-5. Update docs: this file, `AGENTS.md`, the battery section in `../AGENTS.md`, `../electricity.md`.
+## ✅ Old helpers removed (2026-10-08)
+
+Backups `.storage/{core.config_entries,core.entity_registry,energy,lovelace.dashboard_nvertor,lovelace.potochna_energ_ia}.bak-20261008-083204`.
+- Energy battery source → `sensor.batareia_energy_discharged` / `_energy_charged`, power `_discharge_power` /
+  `_charge_power` (net-power entity `sensor.energy_battery_batareia_discharge_power_batareia_charge_power_net_power`
+  is made by HA). The old battery history in Energy is not joined to the new one.
+- `lovelace.dashboard_nvertor`: tiles → `sensor.batareia_power`, `_remaining_charge`, `_state_of_charge`; the
+  «Інвертор мінус батарея» tile is removed.
+- `lovelace.potochna_energ_ia`: the «Енергія від батареї» statistics graph → `sensor.batareia_energy_discharged`.
+- All 11 old config entries deleted (the user chose to delete the two Atorch-based ones and «Інвертор мінус
+  батарея» too): `01KJDZD426Z63X7X633QQGCDFE`, `01KJDZ6MK6NRC21Z0JDCBQ9G95`, `01KJE2VKCP1B7YF033GSTHP7AJ`,
+  `01KHYR62V75P4XG19ZNYGQ5JBX`, `01KJE42SEM090E1PHP6GWFMCPD`, `01KJE45CWJW6XY918YKBS5PH01`,
+  `01KJF0Y7EZWXNKRYZZBHGXKNMJ`, `01KJF0ZV5G77M6RTGESFNE99W1`, `01KJYFF35MXCGFB68DC9SNFBXS`,
+  `01KH01G2DXX51B0ZQ45JJ4N90J`, `01KGTKSW07WBC2HK8RC7P1B292`. The orphaned old Energy net-power entity was removed
+  from the registry.
+
+## ⏳ Still to confirm on live data
+
+- After the next float: `Current offset` ≈ −1 A.
+- Next full→full cycle: `Charge efficiency` moves off 95 % (expected ~0.97–0.99) instead of being rejected.
+- Next outage: `load_ratio` (State of charge attribute) moves off 1.0.
+- An ESP dropout during an outage: Status `discharging` with `estimated: true`, SoC keeps falling.
+- Capacity: only after a discharge to zero (the inverter switching itself off).
