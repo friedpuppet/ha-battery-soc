@@ -14,6 +14,8 @@ re-anchors the count at the two moments it can actually detect: **full** and **e
 - **Battery full** (optional binary sensor): on when the battery is full, e.g. the inverter's
   *float charging* flag.
 - **Grid** (optional binary sensor): on while utility power is present.
+- **Load power** (optional sensor, W): what the load draws from the inverter output, e.g. a meter
+  on the inverter's AC output. Used while the battery telemetry is gone during an outage.
 - **Nominal capacity** (Ah) and **nominal voltage**.
 
 ## How it counts
@@ -21,10 +23,16 @@ re-anchors the count at the two moments it can actually detect: **full** and **e
 - The current is integrated every 10 s and on every change. Charging current is multiplied by the
   charge efficiency.
 - **Dropouts**: while the current sensor is unavailable, its last value is used for at most
-  *max gap* seconds (default 300), then nothing is counted.
+  *max gap* seconds (default 300). After that, during an outage (grid `off`) the discharge is
+  counted from the load power sensor: load W × *load ratio* / last battery voltage. Status stays
+  `discharging` with the attribute `estimated: true`. Without a load sensor, or with the grid
+  present, nothing is counted.
 - **Float**: while the full sensor is on, the current is taken as 0. Chargers in float hold the
   voltage, and the shunt mostly shows its own offset, which would otherwise look like a slow
-  discharge. If the full sensor drops to `unavailable`, the hold continues; only `off` ends it.
+  discharge. If the full sensor drops to `unavailable`, the hold continues; it ends when the
+  full sensor turns `off` or when the grid goes `off` (there is no float without the grid).
+- **Current offset**: what the current sensor reads on float is taken as its zero offset and
+  subtracted from every reading outside float.
 - The state of charge is clamped to 0–100 %. Whatever was clipped since the last anchor is in the
   `drift_ah` attribute.
 
@@ -38,8 +46,10 @@ re-anchors the count at the two moments it can actually detect: **full** and **e
 - **Inverter shutdown.** An inverter powered from its own battery switches itself off at cut-off,
   and its telemetry disappears with it (Home Assistant itself has to be on a separate UPS to see
   this). Empty when all of these hold: no grid (grid sensor `off`; without one, the last current was
-  a discharge), the battery was already low (last voltage ≤ *low voltage* or SoC ≤ *low SoC*),
-  and the current sensor has been unavailable for *shutdown delay* (default 180 s). While the
+  a discharge), the battery is low (last voltage ≤ *low voltage* or SoC ≤ *low SoC*), the load
+  sensor (if configured) shows no load (unavailable or under 10 W), and the current sensor has
+  been unavailable for at least *shutdown delay* (default 180 s). This is checked every 10 s, so a
+  long dropout that was counted from the load still ends here once the battery runs low. While the
   inverter is off, nothing is counted and Status is `off`. Once the telemetry is back, counting
   continues from 0 %.
 - **Low voltage**: voltage ≤ *empty voltage* while discharging for *empty delay*.
@@ -50,7 +60,13 @@ re-anchors the count at the two moments it can actually detect: **full** and **e
 - **Charge efficiency**: on *full* after *full*, Ah out / Ah in over the cycle; on *full* after
   *empty*, capacity / Ah in.
 
-Both are smoothed (EMA, weight 0.3 per cycle). Cycles shorter than 10 % of the capacity are
+- **Current offset**: the mean current on float, once per hour of float (or when a float of at
+  least 30 min ends); ±5 A at most. Can be turned off in the options.
+- **Load ratio** (battery W per load W, covers the inverter's losses): on every grid return, battery
+  Ah out / load Ah over the outage, if at least 10 Ah came out while both sensors reported;
+  0.8–1.5, starts at 1.0.
+
+All are smoothed (EMA, weight 0.3 per sample). Cycles shorter than 10 % of the capacity are
 skipped, and so are implausible results (capacity outside 50–120 % of nominal, efficiency outside
 80–100 %). Changing the nominal capacity resets the learned capacity.
 
@@ -59,7 +75,8 @@ skipped, and so are implausible results (capacity outside 50–120 % of nominal,
 On the battery's device: **State of charge** (%), **Remaining charge** (Ah), **Power** (W, signed),
 **Charge power** / **Discharge power** (W) and **Energy charged** / **Energy discharged** (kWh,
 `total_increasing`, ready for the Energy dashboard), **Status** (`charging`, `discharging`,
-`idle`, `full`, `off`). Diagnostics: **Capacity**, **State of health**, **Charge efficiency**.
+`idle`, `full`, `off`). Diagnostics: **Capacity**, **State of health**, **Charge efficiency**, **Current offset**. The
+learned load ratio is the `load_ratio` attribute of State of charge.
 Button **Mark full**.
 
 All three counted values (power, energy, SoC) use the same current, with the float hold applied.

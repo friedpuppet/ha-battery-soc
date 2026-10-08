@@ -4,12 +4,14 @@ The battery current (signed, + = charging) is integrated into the remaining char
 Integration alone drifts, so it is re-anchored at the two points that can be detected:
 
 - **Full**: the "full" binary sensor (e.g. the inverter's float-charging flag) turns on.
-  While it stays on the current is taken as 0: chargers in float hold the voltage and the
-  shunt mostly shows its own offset, which would otherwise count as a slow discharge.
+  While it stays on (and the grid is present) the current is taken as 0: chargers in float
+  hold the voltage and the shunt mostly shows its own offset. That offset is learned from
+  the float readings and subtracted from the current everywhere else.
   Without a full sensor: voltage >= full voltage with |current| <= tail current for a while.
 - **Empty**: an inverter powered from its own battery switches itself off at cut-off, and
-  its telemetry disappears with it. So: no grid, the battery was already low (voltage or
-  SoC hint), and the current sensor has been unavailable for ``shutdown_delay`` seconds.
+  its telemetry disappears with it. So: no grid, the battery is low (voltage or SoC hint),
+  the load sensor (if any) shows nothing, and the current sensor has been unavailable for
+  ``shutdown_delay`` seconds.
   Fallback: voltage <= empty voltage while discharging for ``empty_delay`` seconds.
 
 Each anchor also teaches a parameter: empty after full gives the usable capacity, full
@@ -17,6 +19,8 @@ after full/empty gives the charge efficiency (Ah out / Ah in over the cycle). Bo
 EMA and ignore cycles that are too short or give implausible values.
 
 Short sensor dropouts are bridged by extrapolating the last current for ``max_gap`` seconds.
+Longer ones during an outage are counted from the load power sensor, scaled by a learned
+battery/load power ratio.
 """
 
 from __future__ import annotations
@@ -47,6 +51,8 @@ from .const import (
     CONF_GRID_ENTITY,
     CONF_LEARN_CAPACITY,
     CONF_LEARN_EFFICIENCY,
+    CONF_LEARN_OFFSET,
+    CONF_LOAD_ENTITY,
     CONF_LOW_SOC_HINT,
     CONF_LOW_VOLTAGE_HINT,
     CONF_MAX_GAP,
@@ -56,6 +62,7 @@ from .const import (
     CONF_TAIL_CURRENT,
     CONF_VOLTAGE_ENTITY,
     DEFAULT_EFFICIENCY,
+    DEFAULT_LOAD_RATIO,
     DEFAULTS,
     DOMAIN,
     EFFICIENCY_RANGE,
@@ -64,6 +71,12 @@ from .const import (
     IDLE_CURRENT,
     LEARN_ALPHA,
     LEARN_MIN_CYCLE,
+    LOAD_LEARN_MIN_AH,
+    LOAD_ON_POWER,
+    LOAD_RATIO_RANGE,
+    OFFSET_MAX_SECONDS,
+    OFFSET_MIN_SECONDS,
+    OFFSET_RANGE,
     STORAGE_VERSION,
     TICK_SECONDS,
 )
@@ -98,11 +111,12 @@ class BatteryTracker:
         self.voltage_entity: str = opts[CONF_VOLTAGE_ENTITY]
         self.full_entity: str | None = opts.get(CONF_FULL_ENTITY) or None
         self.grid_entity: str | None = opts.get(CONF_GRID_ENTITY) or None
+        self.load_entity: str | None = opts.get(CONF_LOAD_ENTITY) or None
         self.nominal_ah = float(opts[CONF_NOMINAL_CAPACITY])
         self.nominal_v = float(opts[CONF_NOMINAL_VOLTAGE])
         self.empty_voltage = float(opts[CONF_EMPTY_VOLTAGE])
         self.empty_delay = float(opts[CONF_EMPTY_DELAY])
-        self.shutdown_delay = float(opts[CONF_SHUTDOWN_DELAY])
+        self.shutdown_delay = timedelta(seconds=float(opts[CONF_SHUTDOWN_DELAY]))
         self.low_voltage_hint = float(opts[CONF_LOW_VOLTAGE_HINT])
         self.low_soc_hint = float(opts[CONF_LOW_SOC_HINT])
         self.full_voltage = float(opts[CONF_FULL_VOLTAGE])
@@ -111,12 +125,15 @@ class BatteryTracker:
         self.max_gap = timedelta(seconds=float(opts[CONF_MAX_GAP]))
         self.learn_capacity = bool(opts[CONF_LEARN_CAPACITY])
         self.learn_efficiency = bool(opts[CONF_LEARN_EFFICIENCY])
+        self.learn_offset = bool(opts[CONF_LEARN_OFFSET])
         self.initial_soc = initial_soc
 
         # Persisted state
         self.capacity_ah = self.nominal_ah
         self.remaining_ah = self.nominal_ah * initial_soc / 100
         self.efficiency = DEFAULT_EFFICIENCY
+        self.current_offset = 0.0  # A the shunt reads at zero current (learned on float)
+        self.load_ratio = DEFAULT_LOAD_RATIO  # battery W per load W during an outage (learned)
         self.energy_in_kwh = 0.0
         self.energy_out_kwh = 0.0
         self.anchor: str | None = None  # last anchor: "full", "empty" or None (manual)
@@ -129,12 +146,18 @@ class BatteryTracker:
         self.off = False  # inverter switched off at empty; nothing flows until it is back
 
         # Live inputs
-        self.current: float | None = None
+        self.current: float | None = None  # raw, before the offset correction
         self.voltage: float | None = None
+        self.load: float | None = None
         self._last_current: float | None = None
         self._last_voltage: float | None = None
         self._gap_until: datetime | None = None  # extrapolate the last current until then
+        self._current_lost: datetime | None = None  # when the current sensor went away
         self._last_ts: datetime = dt_util.utcnow()
+        self._float_as = 0.0  # raw current integrated while holding (A*s) ...
+        self._float_s = 0.0  # ... over this many seconds
+        self._outage_battery_ah = 0.0  # discharged during this outage while the load was known ...
+        self._outage_load_ah = 0.0  # ... and the load power over the same time, in Ah
 
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry_id}")
         self._listeners: list[Callable[[], None]] = []
@@ -156,7 +179,22 @@ class BatteryTracker:
         """Current the counter uses right now (0 while full or switched off)."""
         if self.off or self.holding:
             return 0.0
-        return self.current
+        if self.current is not None:
+            return self.current - self.current_offset
+        if self._bridging(dt_util.utcnow()):
+            return self._last_current - self.current_offset  # type: ignore[operator]
+        return self._estimated_current()
+
+    @property
+    def estimating(self) -> bool:
+        """The current comes from the load sensor, not from the battery."""
+        return (
+            not self.off
+            and not self.holding
+            and self.current is None
+            and not self._bridging(dt_util.utcnow())
+            and self._estimated_current() is not None
+        )
 
     @property
     def power(self) -> float | None:
@@ -171,7 +209,7 @@ class BatteryTracker:
             return "off"
         if self.holding:
             return "full"
-        current = self.current
+        current = self.effective_current
         if current is None:
             return None
         if current > IDLE_CURRENT:
@@ -185,6 +223,15 @@ class BatteryTracker:
             return self.voltage
         return self._last_voltage if self._last_voltage is not None else self.nominal_v
 
+    def _bridging(self, now: datetime) -> bool:
+        return self._last_current is not None and self._gap_until is not None and now < self._gap_until
+
+    def _estimated_current(self) -> float | None:
+        """Battery current from the load power, while the grid is out."""
+        if self.load is None or not self._grid_absent():
+            return None
+        return -max(self.load, 0.0) * self.load_ratio / self._volts()
+
     # ----- lifecycle ------------------------------------------------------
 
     async def async_load(self) -> None:
@@ -194,6 +241,8 @@ class BatteryTracker:
         self.remaining_ah = data["remaining_ah"]
         self.capacity_ah = data["capacity_ah"]
         self.efficiency = data["efficiency"]
+        self.current_offset = data.get("current_offset", 0.0)
+        self.load_ratio = data.get("load_ratio", DEFAULT_LOAD_RATIO)
         self.energy_in_kwh = data["energy_in_kwh"]
         self.energy_out_kwh = data["energy_out_kwh"]
         self.anchor = data["anchor"]
@@ -217,6 +266,8 @@ class BatteryTracker:
             "capacity_ah": self.capacity_ah,
             "nominal_ah": self.nominal_ah,
             "efficiency": self.efficiency,
+            "current_offset": self.current_offset,
+            "load_ratio": self.load_ratio,
             "energy_in_kwh": self.energy_in_kwh,
             "energy_out_kwh": self.energy_out_kwh,
             "anchor": self.anchor,
@@ -232,13 +283,16 @@ class BatteryTracker:
     @callback
     def async_start(self) -> None:
         """Read the sources, subscribe to them and start the integration tick."""
-        self._last_ts = dt_util.utcnow()
+        now = self._last_ts = dt_util.utcnow()
         self.current = _number(self._state(self.current_entity))
         self._last_current = self.current
         self.voltage = _number(self._state(self.voltage_entity))
         self._last_voltage = self.voltage
+        self.load = _number(self._state(self.load_entity))
         if self.current is not None:
             self.off = False
+        else:
+            self._current_lost = now
 
         if self.full_entity:
             full = self._state(self.full_entity)
@@ -246,9 +300,11 @@ class BatteryTracker:
                 self._full_event("full sensor already on at startup")
             elif full == STATE_OFF:
                 self.holding = False
+        if self._state(self.grid_entity) == STATE_OFF:
+            self.holding = False  # no float without the grid
 
         entities = [self.current_entity, self.voltage_entity]
-        entities += [e for e in (self.full_entity, self.grid_entity) if e]
+        entities += [e for e in (self.full_entity, self.grid_entity, self.load_entity) if e]
         self._unsubs.append(async_track_state_change_event(self.hass, entities, self._async_on_change))
         self._unsubs.append(
             async_track_time_interval(self.hass, self._async_tick, timedelta(seconds=TICK_SECONDS))
@@ -297,7 +353,9 @@ class BatteryTracker:
 
     @callback
     def _async_tick(self, now: datetime) -> None:
-        self._accrue(dt_util.utcnow())
+        now = dt_util.utcnow()
+        self._accrue(now)
+        self._check_shutdown(now)
         self._changed()
 
     @callback
@@ -312,14 +370,20 @@ class BatteryTracker:
             self._on_current(_number(state), now)
         elif entity_id == self.voltage_entity:
             self._on_voltage(_number(state))
+        elif entity_id == self.load_entity:
+            self.load = _number(state)
         elif entity_id == self.full_entity:
             if state == STATE_ON and not self.holding:
                 self._full_event("full sensor turned on")
             elif state == STATE_OFF:
-                self.holding = False
+                self._end_hold()
             # unavailable: keep holding, the sensor shares the flaky bridge with the current
-        elif entity_id == self.grid_entity and state == STATE_ON:
-            self._cancel("shutdown")
+        elif entity_id == self.grid_entity:
+            if state == STATE_ON:
+                self._learn_load_ratio()
+            elif state == STATE_OFF:
+                self._end_hold()  # no float without the grid, whatever the full sensor says
+                self._outage_battery_ah = self._outage_load_ah = 0.0
         self._check_voltage_rules()
         self._changed()
 
@@ -327,19 +391,17 @@ class BatteryTracker:
     def _on_current(self, value: float | None, now: datetime) -> None:
         if value is not None:
             self.current = self._last_current = value
-            self._gap_until = None
-            self._cancel("shutdown")
+            self._gap_until = self._current_lost = None
             if self.off:
                 _LOGGER.info("Battery telemetry is back after the shutdown")
                 self.off = False
             return
         if self.current is None:
             return
-        # The source just went away: bridge the gap, and maybe the inverter shut down.
+        # The source just went away: bridge the gap (the inverter may also have shut down).
         self.current = None
         self._gap_until = now + self.max_gap
-        if not self.off and self._grid_absent() and self._was_low():
-            self._start("shutdown", self.shutdown_delay, self._async_shutdown_expired)
+        self._current_lost = now
 
     @callback
     def _on_voltage(self, value: float | None) -> None:
@@ -359,13 +421,18 @@ class BatteryTracker:
         return low_v or self.soc <= self.low_soc_hint
 
     @callback
-    def _async_shutdown_expired(self, _now: datetime) -> None:
-        self._timers.pop("shutdown", None)
-        self._accrue(dt_util.utcnow())
-        if self.current is None and self._state(self.grid_entity) != STATE_ON:
-            self.off = True
-            self._empty_event("inverter shut down (telemetry gone while low, no grid)")
-            self._changed()
+    def _check_shutdown(self, now: datetime) -> None:
+        """Telemetry gone for a while, no grid, battery low, load dark: the inverter is off."""
+        if self.off or self.current is not None or self._current_lost is None:
+            return
+        if now - self._current_lost < self.shutdown_delay:
+            return
+        if not self._grid_absent() or not self._was_low():
+            return
+        if self.load is not None and self.load >= LOAD_ON_POWER:
+            return  # the inverter still feeds the load: only its telemetry is gone
+        self.off = True
+        self._empty_event("inverter shut down (telemetry gone while low, no grid)")
 
     @callback
     def _check_voltage_rules(self) -> None:
@@ -413,14 +480,32 @@ class BatteryTracker:
     @callback
     def _accrue(self, now: datetime) -> None:
         start, self._last_ts = self._last_ts, now
-        if self.off or self.holding:
+        if self.off:
+            return
+        if self.holding:
+            if self.current is not None:
+                seconds = (now - start).total_seconds()
+                self._float_as += self.current * seconds
+                self._float_s += seconds
+                if self._float_s >= OFFSET_MAX_SECONDS:
+                    self._learn_offset()
             return
         if self.current is not None:
-            current, end = self.current, now
-        elif self._last_current is not None and self._gap_until is not None:
-            current, end = self._last_current, min(now, self._gap_until)
-        else:
+            current = self.current - self.current_offset
+            self._count(current, start, now)
+            if current < 0 and self.load is not None and self._grid_absent():
+                hours = (now - start).total_seconds() / 3600
+                self._outage_battery_ah -= current * hours
+                self._outage_load_ah += max(self.load, 0.0) / self._volts() * hours
             return
+        bridged_until = start
+        if self._last_current is not None and self._gap_until is not None:
+            bridged_until = max(start, min(now, self._gap_until))
+            self._count(self._last_current - self.current_offset, start, bridged_until)
+        if (estimated := self._estimated_current()) is not None:
+            self._count(estimated, bridged_until, now)
+
+    def _count(self, current: float, start: datetime, end: datetime) -> None:
         seconds = (end - start).total_seconds()
         if seconds <= 0 or current == 0:
             return
@@ -444,6 +529,27 @@ class BatteryTracker:
     def _reset_cycle(self) -> None:
         self.cycle_in_ah = self.cycle_out_ah = self.drift_ah = 0.0
 
+    def _end_hold(self) -> None:
+        if self.holding:
+            self._learn_offset()
+        self.holding = False
+
+    def _learn_offset(self) -> None:
+        """What the shunt read on float is its offset (float current is ~0)."""
+        if self.learn_offset and self._float_s >= OFFSET_MIN_SECONDS:
+            self.current_offset = self._learn(
+                "current offset", self.current_offset, self._float_as / self._float_s, OFFSET_RANGE
+            )
+        self._float_as = self._float_s = 0.0
+
+    def _learn_load_ratio(self) -> None:
+        """Outage over: battery Ah out vs. the load's Ah over the same time."""
+        if self._outage_battery_ah >= LOAD_LEARN_MIN_AH and self._outage_load_ah > 0:
+            self.load_ratio = self._learn(
+                "load ratio", self.load_ratio, self._outage_battery_ah / self._outage_load_ah, LOAD_RATIO_RANGE
+            )
+        self._outage_battery_ah = self._outage_load_ah = 0.0
+
     @callback
     def _full_event(self, reason: str) -> None:
         if self.learn_efficiency and self.cycle_in_ah >= LEARN_MIN_CYCLE * self.capacity_ah:
@@ -460,6 +566,7 @@ class BatteryTracker:
         self.last_full = dt_util.utcnow()
         self.holding = bool(self.full_entity)
         self.off = False
+        self._float_as = self._float_s = 0.0
         self._reset_cycle()
         self.hass.bus.async_fire(EVENT_FULL, {"entry_id": self.entry_id, "reason": reason})
 

@@ -9,7 +9,7 @@ from freezegun.api import FrozenDateTimeFactory
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
-from homeassistant.const import STATE_OFF, STATE_ON
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 
 from custom_components.battery_soc.const import (
@@ -17,6 +17,7 @@ from custom_components.battery_soc.const import (
     CONF_FULL_ENTITY,
     CONF_GRID_ENTITY,
     CONF_INITIAL_SOC,
+    CONF_LOAD_ENTITY,
     CONF_VOLTAGE_ENTITY,
     DEFAULTS,
     DOMAIN,
@@ -26,11 +27,13 @@ CURRENT = "sensor.inverter_battery_current"
 VOLTAGE = "sensor.inverter_battery_voltage"
 FULL = "binary_sensor.inverter_float_charging"
 GRID = "binary_sensor.grid"
+LOAD = "sensor.load_power"
 
 SOC = "sensor.battery_state_of_charge"
 REMAINING = "sensor.battery_remaining_charge"
 CAPACITY = "sensor.battery_capacity"
 EFFICIENCY = "sensor.battery_charge_efficiency"
+OFFSET = "sensor.battery_current_offset"
 POWER = "sensor.battery_power"
 DISCHARGE_POWER = "sensor.battery_discharge_power"
 CHARGED = "sensor.battery_energy_charged"
@@ -55,6 +58,7 @@ def make_entry(options: dict[str, Any] | None = None, initial_soc: float = 100) 
             CONF_VOLTAGE_ENTITY: VOLTAGE,
             CONF_FULL_ENTITY: FULL,
             CONF_GRID_ENTITY: GRID,
+            CONF_LOAD_ENTITY: LOAD,
             **(options or {}),
         },
     )
@@ -66,9 +70,11 @@ async def setup_entry(hass: HomeAssistant, entry: MockConfigEntry) -> None:
     await hass.async_block_till_done()
 
 
-async def start_full(hass: HomeAssistant, options: dict[str, Any] | None = None) -> MockConfigEntry:
+async def start_full(
+    hass: HomeAssistant, options: dict[str, Any] | None = None, float_current: float = -1.6
+) -> MockConfigEntry:
     """Battery on float with the grid present (anchored full at startup)."""
-    hass.states.async_set(CURRENT, "-1.6")
+    hass.states.async_set(CURRENT, str(float_current))
     hass.states.async_set(VOLTAGE, "27.2")
     hass.states.async_set(FULL, STATE_ON)
     hass.states.async_set(GRID, STATE_ON)
@@ -83,6 +89,14 @@ async def outage(hass: HomeAssistant, current: float = -20, voltage: float = 26.
     hass.states.async_set(FULL, STATE_OFF)
     hass.states.async_set(VOLTAGE, str(voltage))
     hass.states.async_set(CURRENT, str(current))
+    await hass.async_block_till_done()
+
+
+async def telemetry_gone(hass: HomeAssistant) -> None:
+    """The inverter's ESP (current, voltage, float flag) drops off."""
+    hass.states.async_set(CURRENT, STATE_UNAVAILABLE)
+    hass.states.async_set(VOLTAGE, STATE_UNAVAILABLE)
+    hass.states.async_set(FULL, STATE_UNAVAILABLE)
     await hass.async_block_till_done()
 
 

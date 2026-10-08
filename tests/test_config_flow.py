@@ -5,6 +5,7 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
+from .conftest import CURRENT, FULL, GRID, SOC, VOLTAGE, make_entry, setup_entry, value
 from custom_components.battery_soc.const import (
     CONF_CURRENT_ENTITY,
     CONF_EMPTY_VOLTAGE,
@@ -16,8 +17,6 @@ from custom_components.battery_soc.const import (
     CONF_VOLTAGE_ENTITY,
     DOMAIN,
 )
-
-from .conftest import CURRENT, FULL, GRID, SOC, VOLTAGE, make_entry, setup_entry, value
 
 USER_INPUT = {
     CONF_NAME: "Battery",

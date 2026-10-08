@@ -1,5 +1,7 @@
 """Coulomb counting, float hold, dropouts, persistence and manual calibration."""
 
+from typing import Any
+
 from freezegun.api import FrozenDateTimeFactory
 import pytest
 
@@ -15,14 +17,20 @@ from .conftest import (
     DISCHARGED,
     FULL,
     GRID,
+    LOAD,
     MARK_FULL,
+    OFFSET,
     POWER,
     REMAINING,
     SOC,
     STATUS,
+    VOLTAGE,
     advance,
+    make_entry,
     outage,
+    setup_entry,
     start_full,
+    telemetry_gone,
     value,
 )
 
@@ -126,3 +134,74 @@ async def test_set_soc_and_mark_full(hass: HomeAssistant, freezer: FrozenDateTim
     await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: MARK_FULL}, blocking=True)
     assert value(hass, SOC) == 100
     assert hass.states.get(SOC).attributes["anchor"] == "full"
+
+
+async def test_grid_loss_ends_hold_and_counts_from_load(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
+    # The night of 2026-10-08: the ESP drops off on float, then the grid goes; the load runs on.
+    hass.states.async_set(LOAD, "200")
+    await start_full(hass)
+    await telemetry_gone(hass)
+    hass.states.async_set(GRID, STATE_OFF)
+    await hass.async_block_till_done()
+    assert hass.states.get(STATUS).state == "discharging"
+
+    await advance(hass, freezer, 3600)
+    # 300 s bridged at the last 1.6 A (0.13 Ah), then 3300 s at 200 W / 27.2 V (6.74 Ah)
+    assert value(hass, REMAINING) == pytest.approx(193.13, abs=0.05)
+    assert hass.states.get(STATUS).attributes["estimated"] is True
+    assert value(hass, POWER) == -200
+
+
+async def test_load_ratio_is_learned_per_outage(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
+    hass.states.async_set(LOAD, "480")
+    await start_full(hass)
+    await outage(hass, current=-20, voltage=25.0)
+    await advance(hass, freezer, 3600)  # 20 Ah from the battery, 480 W / 25 V = 19.2 Ah to the load
+    hass.states.async_set(GRID, STATE_ON)
+    await hass.async_block_till_done()
+    # sample 20 / 19.2 = 1.042; EMA from 1.0
+    assert hass.states.get(SOC).attributes["load_ratio"] == pytest.approx(1.0125, abs=0.001)
+
+
+async def test_offset_is_subtracted(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
+    await start_full(hass)
+    await advance(hass, freezer, 3600)  # one hour of float at -1.6 A
+    assert value(hass, OFFSET) == pytest.approx(-0.48, abs=0.005)
+    assert value(hass, SOC) == 100
+
+    await outage(hass, current=-20)
+    await advance(hass, freezer, 3600)
+    assert value(hass, REMAINING) == pytest.approx(180.48, abs=0.05)
+
+
+async def test_state_from_v0_1_0_is_kept(
+    hass: HomeAssistant, hass_storage: dict[str, Any], freezer: FrozenDateTimeFactory
+) -> None:
+    entry = make_entry()
+    hass_storage[f"{DOMAIN}.{entry.entry_id}"] = {
+        "version": 1,
+        "key": f"{DOMAIN}.{entry.entry_id}",
+        "data": {
+            "remaining_ah": 150.0,
+            "capacity_ah": 200.0,
+            "nominal_ah": 200.0,
+            "efficiency": 0.95,
+            "energy_in_kwh": 2.5,
+            "energy_out_kwh": 2.9,
+            "anchor": "full",
+            "cycle_in_ah": 0.0,
+            "cycle_out_ah": 50.0,
+            "drift_ah": 0.0,
+            "last_full": "2026-10-07T23:12:18+00:00",
+            "last_empty": None,
+            "holding": False,
+            "off": False,
+        },
+    }
+    hass.states.async_set(CURRENT, "-20")
+    hass.states.async_set(VOLTAGE, "26.0")
+    hass.states.async_set(GRID, STATE_OFF)
+    await setup_entry(hass, entry)
+    assert value(hass, SOC) == 75
+    assert value(hass, OFFSET) == 0
+    assert hass.states.get(SOC).attributes["load_ratio"] == 1

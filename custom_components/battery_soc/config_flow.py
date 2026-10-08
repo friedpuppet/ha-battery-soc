@@ -24,6 +24,8 @@ from .const import (
     CONF_INITIAL_SOC,
     CONF_LEARN_CAPACITY,
     CONF_LEARN_EFFICIENCY,
+    CONF_LEARN_OFFSET,
+    CONF_LOAD_ENTITY,
     CONF_LOW_SOC_HINT,
     CONF_LOW_VOLTAGE_HINT,
     CONF_MAX_GAP,
@@ -67,6 +69,9 @@ def _sources_schema(defaults: dict[str, Any]) -> dict:
         _optional_entity(CONF_GRID_ENTITY, defaults): selector.EntitySelector(
             selector.EntitySelectorConfig(domain=BINARY_SENSOR_DOMAIN)
         ),
+        _optional_entity(CONF_LOAD_ENTITY, defaults): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor", device_class=SensorDeviceClass.POWER)
+        ),
         vol.Required(CONF_NOMINAL_CAPACITY, default=d(CONF_NOMINAL_CAPACITY)): _number("Ah", 10000, 0.1),
         vol.Required(CONF_NOMINAL_VOLTAGE, default=d(CONF_NOMINAL_VOLTAGE)): _number("V", 1000, 0.1),
     }
@@ -88,6 +93,7 @@ def _tuning_schema(defaults: dict[str, Any]) -> dict:
         vol.Required(CONF_MAX_GAP, default=d(CONF_MAX_GAP)): _number("s", 3600),
         vol.Required(CONF_LEARN_CAPACITY, default=d(CONF_LEARN_CAPACITY)): selector.BooleanSelector(),
         vol.Required(CONF_LEARN_EFFICIENCY, default=d(CONF_LEARN_EFFICIENCY)): selector.BooleanSelector(),
+        vol.Required(CONF_LEARN_OFFSET, default=d(CONF_LEARN_OFFSET)): selector.BooleanSelector(),
     }
 
 

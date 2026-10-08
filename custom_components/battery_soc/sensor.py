@@ -12,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfEnergy, UnitOfPower
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfElectricCurrent, UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -52,6 +52,7 @@ SENSORS: tuple[BatterySensorDescription, ...] = (
             "drift_ah": round(t.drift_ah, 2),
             "cycle_in_ah": round(t.cycle_in_ah, 2),
             "cycle_out_ah": round(t.cycle_out_ah, 2),
+            "load_ratio": round(t.load_ratio, 3),
         },
     ),
     BatterySensorDescription(
@@ -85,6 +86,14 @@ SENSORS: tuple[BatterySensorDescription, ...] = (
         native_unit_of_measurement=PERCENTAGE,
         suggested_display_precision=1,
         value_fn=lambda t: round(100 * t.efficiency, 1),
+    ),
+    BatterySensorDescription(
+        key="current_offset",
+        device_class=SensorDeviceClass.CURRENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        suggested_display_precision=2,
+        value_fn=lambda t: round(t.current_offset, 2),
     ),
     BatterySensorDescription(
         key="power",
@@ -132,6 +141,7 @@ SENSORS: tuple[BatterySensorDescription, ...] = (
         device_class=SensorDeviceClass.ENUM,
         options=["charging", "discharging", "idle", "full", "off"],
         value_fn=lambda t: t.status,
+        attrs_fn=lambda t: {"estimated": t.estimating},
     ),
 )
 
