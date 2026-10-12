@@ -379,3 +379,11 @@ Scripts are in the session scratchpad (not kept).
   the wrong way and adds 1 A of under-count to the existing 1–4 A.
 - Candidate for `battery_soc`: float hold 0; charge I + 2.7 (or × 1.055); discharge I − 2.5 − 0.3 · (T2 − 40),
   with NTC2 as an optional input. Then cycle balance ≈ 1.00 ± 0.03.
+
+**Applied (2026-10-12, v0.4.0).** Options on the live entry: charge correction +2.7 A; discharge correction 2.5 A
++ 0.3 A/°C × (`sensor.inverter_ntc2_temperature` − 40), clamped to 0–10 A; float-offset subtraction off (the float
+reading is still tracked). First check at 34 °C: sensor −22.5 A → counted −23.2 A (612 W) vs Atorch 551 W.
+To watch:
+- the learned efficiency, 0.925 when this was applied; it came from uncorrected cycles, expect ~0.97–1.0;
+- `load_ratio`;
+- cycle drift at the next float anchors.
