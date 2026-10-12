@@ -12,6 +12,7 @@ CONF_GRID_ENTITY: Final = "grid_entity"  # optional binary_sensor, on = utility 
 CONF_LOAD_ENTITY: Final = "load_power_entity"  # optional sensor, W drawn by the load (inverter output)
 CONF_COUNTERS_ENTITY: Final = "counters_entity"  # optional: JSON totals kept on the inverter's ESP
 CONF_BOOT_ENTITY: Final = "boot_entity"  # optional: JSON snapshot of those totals at the ESP's boot
+CONF_TEMPERATURE_ENTITY: Final = "temperature_entity"  # optional: temperature the sensor's error follows
 CONF_NOMINAL_CAPACITY: Final = "nominal_capacity_ah"
 CONF_NOMINAL_VOLTAGE: Final = "nominal_voltage"
 
@@ -27,7 +28,13 @@ CONF_FULL_DELAY: Final = "full_delay_s"
 CONF_MAX_GAP: Final = "max_gap_s"
 CONF_LEARN_CAPACITY: Final = "learn_capacity"
 CONF_LEARN_EFFICIENCY: Final = "learn_efficiency"
-CONF_LEARN_OFFSET: Final = "learn_current_offset"
+CONF_LEARN_OFFSET: Final = "learn_current_offset"  # subtract the float reading (it is always tracked)
+# Per-mode corrections added to the sensor's reading (A): grid present and not full = charging,
+# grid out = discharging (its correction may follow a temperature)
+CONF_CHARGE_CORRECTION: Final = "charge_correction_a"
+CONF_DISCHARGE_CORRECTION: Final = "discharge_correction_a"
+CONF_DISCHARGE_TEMP_COEFF: Final = "discharge_correction_per_degree"
+CONF_CORRECTION_REF_TEMP: Final = "correction_reference_temperature"
 
 # Config entry data (first setup only)
 CONF_INITIAL_SOC: Final = "initial_soc"
@@ -47,6 +54,10 @@ DEFAULTS: Final = {
     CONF_LEARN_CAPACITY: True,
     CONF_LEARN_EFFICIENCY: True,
     CONF_LEARN_OFFSET: True,
+    CONF_CHARGE_CORRECTION: 0.0,
+    CONF_DISCHARGE_CORRECTION: 0.0,
+    CONF_DISCHARGE_TEMP_COEFF: 0.0,
+    CONF_CORRECTION_REF_TEMP: 40.0,
 }
 
 DEFAULT_EFFICIENCY: Final = 0.95
@@ -64,6 +75,8 @@ LOAD_ON_POWER: Final = 10.0  # W; a load sensor above this means the inverter st
 COUNTER_FIELDS: Final = ("ai", "ao", "si", "so", "fa", "fs", "wi", "wo")
 IDLE_CURRENT: Final = 0.5  # A; below this the battery counts as idle
 TICK_SECONDS: Final = 10
+DISCHARGE_CORRECTION_RANGE: Final = (0.0, 10.0)  # A; the temperature term is clamped to this
+COUNTER_LIVE_SECONDS: Final = 120  # ESP totals that grew over at most this long follow the grid state
 
 # Bus events fired for automations
 EVENT_FULL: Final = f"{DOMAIN}_full"

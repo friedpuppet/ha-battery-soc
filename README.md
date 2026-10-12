@@ -18,6 +18,8 @@ re-anchors the count at the two moments it can actually detect: **full** and **e
   on the inverter's AC output. Used while the battery telemetry is gone during an outage.
 - **Battery counters** and **boot snapshot** (optional text sensors, JSON): totals kept by the
   inverter's own ESP. See *Counter mode*.
+- **Temperature** (optional sensor): a temperature the current sensor's error follows, e.g. the
+  inverter's NTC near it. Used only by the discharge correction.
 - **Nominal capacity** (Ah) and **nominal voltage**.
 
 ## How it counts
@@ -33,8 +35,19 @@ re-anchors the count at the two moments it can actually detect: **full** and **e
   voltage, and the shunt mostly shows its own offset, which would otherwise look like a slow
   discharge. If the full sensor drops to `unavailable`, the hold continues; it ends when the
   full sensor turns `off` or when the grid goes `off` (there is no float without the grid).
-- **Current offset**: what the current sensor reads on float is taken as its zero offset and
-  subtracted from every reading outside float.
+- **Float offset**: what the current sensor reads on float is tracked. With *Subtract the float
+  reading* on (the default), it is taken as a fixed zero offset and subtracted from every reading
+  outside float.
+- **Per-mode corrections** (options, all 0 by default), for sensors whose error depends on the
+  mode rather than being a fixed offset. They are added to the reading after the float offset:
+  - *charge correction* (A) while the grid is present and the battery is not full;
+  - *discharge correction* (A, added to the discharge as a magnitude) while the grid is out. With a
+    temperature sensor it changes by *per degree* × (temperature − *reference temperature*), kept
+    within 0–10 A.
+
+  Without a grid sensor the mode follows the sign of the last current. For the author's PowMr
+  inverter these came out as +2.7 A charging and 2.5 A + 0.3 A/°C × (NTC2 − 40 °C) discharging,
+  fitted on 10 days of float→float cycles against the grid and load meters (see `PLAN.md`).
 - The state of charge is clamped to 0–100 %. Whatever was clipped since the last anchor is in the
   `drift_ah` attribute.
 
@@ -72,8 +85,12 @@ same fields as they were at boot, plus `pon: 1` for a power-on boot.
 
 - The tracker applies the differences from the totals it last saw (persisted). Whatever happened
   while Home Assistant was down or could not see the ESP is caught up on the next update.
-- The current offset is subtracted using the seconds (`offset × si` / `so`) and learned from
+- The float offset is subtracted using the seconds (`offset × si` / `so`) and tracked from
   `fa`/`fs`.
+- Per-mode corrections are applied using the seconds too. A step of the totals covering at most
+  2 min follows the grid state, like the live current. A longer one (catching up after a gap) can
+  span both an outage and the recharge, so `si` gets the charge correction and `so` the discharge
+  correction, at the temperature known at that moment.
 - **Empty**: a power-on boot of the ESP while the battery was low (last voltage ≤ *low voltage* or
   SoC ≤ *low SoC*). The ESP is powered by the inverter, so a power-on means the inverter had been
   off. Telemetry disappearing alone never means empty in this mode, and there is no load-power
@@ -88,8 +105,9 @@ same fields as they were at boot, plus `pon: 1` for a power-on boot.
 - **Charge efficiency**: on *full* after *full*, Ah out / Ah in over the cycle; on *full* after
   *empty*, capacity / Ah in.
 
-- **Current offset**: the mean current on float, once per hour of float (or when a float of at
-  least 30 min ends); ±5 A at most. Can be turned off in the options.
+- **Current offset** (the float reading): the mean current on float, once per hour of float (or
+  when a float of at least 30 min ends); ±5 A at most. Always tracked; subtracting it can be turned
+  off in the options.
 - **Load ratio** (battery W per load W, covers the inverter's losses): on every grid return, battery
   Ah out / load Ah over the outage, if at least 10 Ah came out while both sensors reported;
   0.8–1.5, starts at 1.0.

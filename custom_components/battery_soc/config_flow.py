@@ -15,8 +15,12 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_BOOT_ENTITY,
+    CONF_CHARGE_CORRECTION,
+    CONF_CORRECTION_REF_TEMP,
     CONF_COUNTERS_ENTITY,
     CONF_CURRENT_ENTITY,
+    CONF_DISCHARGE_CORRECTION,
+    CONF_DISCHARGE_TEMP_COEFF,
     CONF_EMPTY_DELAY,
     CONF_EMPTY_VOLTAGE,
     CONF_FULL_DELAY,
@@ -35,16 +39,17 @@ from .const import (
     CONF_NOMINAL_VOLTAGE,
     CONF_SHUTDOWN_DELAY,
     CONF_TAIL_CURRENT,
+    CONF_TEMPERATURE_ENTITY,
     CONF_VOLTAGE_ENTITY,
     DEFAULTS,
     DOMAIN,
 )
 
 
-def _number(unit: str, max_value: float, step: float = 1) -> selector.NumberSelector:
+def _number(unit: str, max_value: float, step: float = 1, min_value: float = 0) -> selector.NumberSelector:
     return selector.NumberSelector(
         selector.NumberSelectorConfig(
-            min=0, max=max_value, step=step, unit_of_measurement=unit, mode=selector.NumberSelectorMode.BOX
+            min=min_value, max=max_value, step=step, unit_of_measurement=unit, mode=selector.NumberSelectorMode.BOX
         )
     )
 
@@ -80,6 +85,9 @@ def _sources_schema(defaults: dict[str, Any]) -> dict:
         _optional_entity(CONF_BOOT_ENTITY, defaults): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="sensor")
         ),
+        _optional_entity(CONF_TEMPERATURE_ENTITY, defaults): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor", device_class=SensorDeviceClass.TEMPERATURE)
+        ),
         vol.Required(CONF_NOMINAL_CAPACITY, default=d(CONF_NOMINAL_CAPACITY)): _number("Ah", 10000, 0.1),
         vol.Required(CONF_NOMINAL_VOLTAGE, default=d(CONF_NOMINAL_VOLTAGE)): _number("V", 1000, 0.1),
     }
@@ -102,6 +110,10 @@ def _tuning_schema(defaults: dict[str, Any]) -> dict:
         vol.Required(CONF_LEARN_CAPACITY, default=d(CONF_LEARN_CAPACITY)): selector.BooleanSelector(),
         vol.Required(CONF_LEARN_EFFICIENCY, default=d(CONF_LEARN_EFFICIENCY)): selector.BooleanSelector(),
         vol.Required(CONF_LEARN_OFFSET, default=d(CONF_LEARN_OFFSET)): selector.BooleanSelector(),
+        vol.Required(CONF_CHARGE_CORRECTION, default=d(CONF_CHARGE_CORRECTION)): _number("A", 100, 0.1, -100),
+        vol.Required(CONF_DISCHARGE_CORRECTION, default=d(CONF_DISCHARGE_CORRECTION)): _number("A", 100, 0.1, -100),
+        vol.Required(CONF_DISCHARGE_TEMP_COEFF, default=d(CONF_DISCHARGE_TEMP_COEFF)): _number("A/°C", 10, 0.01, -10),
+        vol.Required(CONF_CORRECTION_REF_TEMP, default=d(CONF_CORRECTION_REF_TEMP)): _number("°C", 150, 0.5, -40),
     }
 
 

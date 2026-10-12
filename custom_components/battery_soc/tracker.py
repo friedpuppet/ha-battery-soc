@@ -5,8 +5,8 @@ Integration alone drifts, so it is re-anchored at the two points that can be det
 
 - **Full**: the "full" binary sensor (e.g. the inverter's float-charging flag) turns on.
   While it stays on (and the grid is present) the current is taken as 0: chargers in float
-  hold the voltage and the shunt mostly shows its own offset. That offset is learned from
-  the float readings and subtracted from the current everywhere else.
+  hold the voltage and the sensor mostly shows its own offset. That float reading is tracked
+  and, optionally, subtracted from the current everywhere else.
   Without a full sensor: voltage >= full voltage with |current| <= tail current for a while.
 - **Empty**: an inverter powered from its own battery switches itself off at cut-off, and
   its telemetry disappears with it. So: no grid, the battery is low (voltage or SoC hint),
@@ -17,6 +17,11 @@ Integration alone drifts, so it is re-anchored at the two points that can be det
 Each anchor also teaches a parameter: empty after full gives the usable capacity, full
 after full/empty gives the charge efficiency (Ah out / Ah in over the cycle). Both use an
 EMA and ignore cycles that are too short or give implausible values.
+
+**Corrections**: an inverter's own current sensor can be off by an amount that depends on the
+mode (and on its temperature) rather than by a fixed offset. Optional per-mode corrections are
+added to the reading: one while charging (grid present, not full) and one while discharging
+(grid out), the latter optionally linear in a temperature sensor.
 
 Short sensor dropouts are bridged by extrapolating the last current for ``max_gap`` seconds.
 Longer ones during an outage are counted from the load power sensor, scaled by a learned
@@ -50,8 +55,12 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CAPACITY_RANGE,
     CONF_BOOT_ENTITY,
+    CONF_CHARGE_CORRECTION,
+    CONF_CORRECTION_REF_TEMP,
     CONF_COUNTERS_ENTITY,
     CONF_CURRENT_ENTITY,
+    CONF_DISCHARGE_CORRECTION,
+    CONF_DISCHARGE_TEMP_COEFF,
     CONF_EMPTY_DELAY,
     CONF_EMPTY_VOLTAGE,
     CONF_FULL_DELAY,
@@ -69,11 +78,14 @@ from .const import (
     CONF_NOMINAL_VOLTAGE,
     CONF_SHUTDOWN_DELAY,
     CONF_TAIL_CURRENT,
+    CONF_TEMPERATURE_ENTITY,
     CONF_VOLTAGE_ENTITY,
     COUNTER_FIELDS,
+    COUNTER_LIVE_SECONDS,
     DEFAULT_EFFICIENCY,
     DEFAULT_LOAD_RATIO,
     DEFAULTS,
+    DISCHARGE_CORRECTION_RANGE,
     DOMAIN,
     EFFICIENCY_RANGE,
     EVENT_EMPTY,
@@ -135,6 +147,7 @@ class BatteryTracker:
         self.load_entity: str | None = opts.get(CONF_LOAD_ENTITY) or None
         self.counters_entity: str | None = opts.get(CONF_COUNTERS_ENTITY) or None
         self.boot_entity: str | None = opts.get(CONF_BOOT_ENTITY) or None
+        self.temperature_entity: str | None = opts.get(CONF_TEMPERATURE_ENTITY) or None
         self.nominal_ah = float(opts[CONF_NOMINAL_CAPACITY])
         self.nominal_v = float(opts[CONF_NOMINAL_VOLTAGE])
         self.empty_voltage = float(opts[CONF_EMPTY_VOLTAGE])
@@ -149,13 +162,17 @@ class BatteryTracker:
         self.learn_capacity = bool(opts[CONF_LEARN_CAPACITY])
         self.learn_efficiency = bool(opts[CONF_LEARN_EFFICIENCY])
         self.learn_offset = bool(opts[CONF_LEARN_OFFSET])
+        self.charge_correction = float(opts[CONF_CHARGE_CORRECTION])
+        self.discharge_correction = float(opts[CONF_DISCHARGE_CORRECTION])
+        self.discharge_temp_coeff = float(opts[CONF_DISCHARGE_TEMP_COEFF])
+        self.correction_ref_temp = float(opts[CONF_CORRECTION_REF_TEMP])
         self.initial_soc = initial_soc
 
         # Persisted state
         self.capacity_ah = self.nominal_ah
         self.remaining_ah = self.nominal_ah * initial_soc / 100
         self.efficiency = DEFAULT_EFFICIENCY
-        self.current_offset = 0.0  # A the shunt reads at zero current (learned on float)
+        self.current_offset = 0.0  # A the sensor reads at zero current (learned on float)
         self.load_ratio = DEFAULT_LOAD_RATIO  # battery W per load W during an outage (learned)
         self.energy_in_kwh = 0.0
         self.energy_out_kwh = 0.0
@@ -173,6 +190,7 @@ class BatteryTracker:
         self.current: float | None = None  # raw, before the offset correction
         self.voltage: float | None = None
         self.load: float | None = None
+        self.temperature: float | None = None
         self._last_current: float | None = None
         self._last_voltage: float | None = None
         self._gap_until: datetime | None = None  # extrapolate the last current until then
@@ -208,9 +226,9 @@ class BatteryTracker:
         if self.off or self.holding:
             return 0.0
         if self.current is not None:
-            return self.current - self.current_offset
+            return self._corrected(self.current)
         if self._bridging(dt_util.utcnow()):
-            return self._last_current - self.current_offset  # type: ignore[operator]
+            return self._corrected(self._last_current)  # type: ignore[arg-type]
         return self._estimated_current()
 
     @property
@@ -245,6 +263,26 @@ class BatteryTracker:
         if current < -IDLE_CURRENT:
             return "discharging"
         return "idle"
+
+    @property
+    def applied_offset(self) -> float:
+        """The float reading, subtracted from every reading only if that option is on."""
+        return self.current_offset if self.learn_offset else 0.0
+
+    def discharge_correction_now(self) -> float:
+        """A added to the discharge (as a magnitude), at the current temperature."""
+        value = self.discharge_correction
+        if self.discharge_temp_coeff and self.temperature is not None:
+            value += self.discharge_temp_coeff * (self.temperature - self.correction_ref_temp)
+        low, high = DISCHARGE_CORRECTION_RANGE
+        return min(max(value, low), high)
+
+    def _corrected(self, current: float) -> float:
+        """Sensor reading -> battery current: float offset, then the mode's correction."""
+        current -= self.applied_offset
+        if self._grid_absent():
+            return current - self.discharge_correction_now()
+        return current + self.charge_correction
 
     def _volts(self) -> float:
         if self.voltage is not None:
@@ -319,6 +357,7 @@ class BatteryTracker:
         self.voltage = _number(self._state(self.voltage_entity))
         self._last_voltage = self.voltage
         self.load = _number(self._state(self.load_entity))
+        self.temperature = _number(self._state(self.temperature_entity))
         if self.current is not None:
             self.off = False
         else:
@@ -338,7 +377,14 @@ class BatteryTracker:
         entities = [self.current_entity, self.voltage_entity]
         entities += [
             e
-            for e in (self.full_entity, self.grid_entity, self.load_entity, self.counters_entity, self.boot_entity)
+            for e in (
+                self.full_entity,
+                self.grid_entity,
+                self.load_entity,
+                self.counters_entity,
+                self.boot_entity,
+                self.temperature_entity,
+            )
             if e
         ]
         self._unsubs.append(async_track_state_change_event(self.hass, entities, self._async_on_change))
@@ -408,6 +454,8 @@ class BatteryTracker:
             self._on_voltage(_number(state))
         elif entity_id == self.load_entity:
             self.load = _number(state)
+        elif entity_id == self.temperature_entity:
+            self.temperature = _number(state)
         elif entity_id in (self.counters_entity, self.boot_entity):
             self._sync_counters()
         elif entity_id == self.full_entity:
@@ -565,17 +613,35 @@ class BatteryTracker:
             return
         if self.off:
             return
-        offset_ah_per_s = self.current_offset / 3600  # the shunt's offset, per second of flow
+        offset_ah_per_s = self.applied_offset / 3600  # the float reading, per second of flow
+        ah_in = max(delta["ai"] - offset_ah_per_s * delta["si"], 0.0)
+        ah_out = max(delta["ao"] + offset_ah_per_s * delta["so"], 0.0)
+        kwh_in, kwh_out = delta["wi"] / 1000, delta["wo"] / 1000
+        add_in, add_out = self._counter_corrections_ah(delta["si"], delta["so"])
+        volts = self._volts()
         self._apply(
-            max(delta["ai"] - offset_ah_per_s * delta["si"], 0.0),
-            max(delta["ao"] + offset_ah_per_s * delta["so"], 0.0),
-            delta["wi"] / 1000,
-            delta["wo"] / 1000,
+            max(ah_in + add_in, 0.0),
+            max(ah_out + add_out, 0.0),
+            max(kwh_in + add_in * volts / 1000, 0.0),
+            max(kwh_out + add_out * volts / 1000, 0.0),
         )
         self._float_as += delta["fa"] * 3600
         self._float_s += delta["fs"]
         if self._float_s >= OFFSET_MAX_SECONDS:
             self._learn_offset()
+
+    def _counter_corrections_ah(self, seconds_in: float, seconds_out: float) -> tuple[float, float]:
+        """Ah the per-mode corrections add to a step of the ESP's totals: (charged, discharged).
+
+        A short step follows the grid state, like the live current does. A long one (catching
+        up after Home Assistant was away) can span an outage and the recharge, so the ESP's
+        own split by direction stands in for the mode.
+        """
+        charge, discharge = self.charge_correction / 3600, self.discharge_correction_now() / 3600
+        seconds = seconds_in + seconds_out
+        if seconds <= COUNTER_LIVE_SECONDS:
+            return (0.0, discharge * seconds) if self._grid_absent() else (charge * seconds, 0.0)
+        return charge * seconds_in, discharge * seconds_out
 
     @callback
     def _accrue(self, now: datetime) -> None:
@@ -591,7 +657,7 @@ class BatteryTracker:
                     self._learn_offset()
             return
         if self.current is not None:
-            current = self.current - self.current_offset
+            current = self._corrected(self.current)
             self._count(current, start, now)
             if current < 0 and self.load is not None and self._grid_absent():
                 hours = (now - start).total_seconds() / 3600
@@ -601,7 +667,7 @@ class BatteryTracker:
         bridged_until = start
         if self._last_current is not None and self._gap_until is not None:
             bridged_until = max(start, min(now, self._gap_until))
-            self._count(self._last_current - self.current_offset, start, bridged_until)
+            self._count(self._corrected(self._last_current), start, bridged_until)
         if (estimated := self._estimated_current()) is not None:
             self._count(estimated, bridged_until, now)
 
@@ -642,8 +708,8 @@ class BatteryTracker:
         self.holding = False
 
     def _learn_offset(self) -> None:
-        """What the shunt read on float is its offset (float current is ~0)."""
-        if self.learn_offset and self._float_s >= OFFSET_MIN_SECONDS:
+        """Track what the sensor reads on float (the battery current is ~0 then)."""
+        if self._float_s >= OFFSET_MIN_SECONDS:
             self.current_offset = self._learn(
                 "current offset", self.current_offset, self._float_as / self._float_s, OFFSET_RANGE
             )

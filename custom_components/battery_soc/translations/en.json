@@ -15,7 +15,8 @@
           "boot_entity": "Battery boot snapshot (ESP)",
           "nominal_capacity_ah": "Nominal capacity",
           "nominal_voltage": "Nominal voltage",
-          "initial_soc": "Initial state of charge"
+          "initial_soc": "Initial state of charge",
+          "temperature_entity": "Temperature sensor"
         },
         "data_description": {
           "current_entity": "Signed current, positive while charging (e.g. the inverter's battery charge current).",
@@ -27,7 +28,8 @@
           "boot_entity": "The ESP's JSON snapshot of those totals at boot, with the power-on flag. A power-on boot after running low marks the battery empty.",
           "nominal_capacity_ah": "Rated capacity; the learned capacity starts from it.",
           "nominal_voltage": "Used for energy only while the voltage sensor has never reported.",
-          "initial_soc": "Starting point until the first full/empty anchor."
+          "initial_soc": "Starting point until the first full/empty anchor.",
+          "temperature_entity": "Optional: a temperature the current sensor's error follows (e.g. the inverter's NTC next to it). Used by the discharge correction."
         }
       }
     },
@@ -59,7 +61,12 @@
           "max_gap_s": "Bridge sensor dropouts up to",
           "learn_capacity": "Learn capacity",
           "learn_efficiency": "Learn charge efficiency",
-          "learn_current_offset": "Learn current offset"
+          "learn_current_offset": "Subtract the float reading",
+          "temperature_entity": "Temperature sensor",
+          "charge_correction_a": "Charge correction",
+          "discharge_correction_a": "Discharge correction",
+          "discharge_correction_per_degree": "Discharge correction per degree",
+          "correction_reference_temperature": "Correction reference temperature"
         },
         "data_description": {
           "current_entity": "Signed current, positive while charging (e.g. the inverter's battery charge current).",
@@ -82,7 +89,12 @@
           "max_gap_s": "While the current sensor is unavailable, its last value is used for at most this long.",
           "learn_capacity": "Measure the usable capacity on every full → empty discharge.",
           "learn_efficiency": "Measure Ah out / Ah in on every cycle that ends at full.",
-          "learn_current_offset": "On float the battery current is ~0, so what the sensor shows then is its offset; subtract it from all readings."
+          "learn_current_offset": "The sensor's mean reading on float (where the battery current is ~0) is always tracked. When on, it is also subtracted from every reading as a fixed offset; turn it off when using the per-mode corrections.",
+          "temperature_entity": "Optional: a temperature the current sensor's error follows (e.g. the inverter's NTC next to it). Used by the discharge correction.",
+          "charge_correction_a": "Added to the current while charging (grid present, not full). Positive if the sensor reads the charge too low.",
+          "discharge_correction_a": "Added to the discharge current as a magnitude while the grid is out, at the reference temperature. Positive if the sensor reads the discharge too low.",
+          "discharge_correction_per_degree": "Change of the discharge correction per degree above the reference temperature (needs the temperature sensor). The result is kept within 0–10 A.",
+          "correction_reference_temperature": "Temperature at which the discharge correction equals its base value."
         }
       }
     }
