@@ -171,7 +171,7 @@ async def test_charge_from_empty_learns_efficiency(hass: HomeAssistant, freezer:
     hass.states.async_set(FULL, STATE_ON)
     await hass.async_block_till_done()
     # sample 171 / 200 = 0.855; EMA from 0.95
-    assert value(hass, EFFICIENCY) == pytest.approx(92.2, abs=0.1)
+    assert value(hass, EFFICIENCY) == pytest.approx(92.15, abs=0.1)
     assert value(hass, SOC) == 100
 
 
