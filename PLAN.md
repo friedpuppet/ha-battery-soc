@@ -396,12 +396,14 @@ few hundred shallow on/off cycles, very few full ones.
 - Counted out ~160 Ah, 4.12 kWh; back in ~161 Ah. Atorch 3.73 kWh out (inverter ~91 %). Zigbee on the recharge gives
   152–158 Ah. So 150–163 Ah, most likely ~160, 80 % of 200 Ah.
 - Learned capacity 187.6 Ah was the EMA from 200, not a measurement (sample 158.7 Ah at the 24.0 V rule, 1 min 50 s
-  before the shutdown). v0.4.1: the first measurement replaces the nominal, later ones are smoothed. The live
-  187.6 Ah stays until the next full discharge.
+  before the shutdown). v0.4.1: the first measurement replaces the nominal, later ones are smoothed. On the user's request the live
+  capacity was set to 160 Ah by hand in `.storage` (2026-10-31, counted as measured, so the next one is smoothed).
 - Curve (pack V under ~40 A / per cell): 26.1 / 3.26 at 50–120 Ah, 25.7 / 3.21 at 120 Ah, 25.1 / 3.14 at 147 Ah,
   24.4 / 3.05 at 157 Ah, 23.34 / 2.92 at the end. The knee starts around 147 Ah. Between 24.0 and 23.4 V only ~1.4 Ah
   came out, so the 24.0 V empty voltage stays.
 - The 200 Ah nominal stays: tests of new packs mostly land at 97–107 % of the rating.
 - Not decided: the `.storage` file is rewritten only on shutdown (`async_delay_save` keeps being pushed back by the
   10 s updates). The user said not now.
+- `docker stop homeassistant` did not write the final state either: the file kept the 06:45 values and 2.35 Ah of
+  counted discharge was lost, until the next float.
 - Open: cell voltages from the BMS (current fell 48 → 2.4 A within minutes at 28.37 V, possible imbalance).
