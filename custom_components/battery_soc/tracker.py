@@ -170,6 +170,7 @@ class BatteryTracker:
 
         # Persisted state
         self.capacity_ah = self.nominal_ah
+        self.capacity_measured = False  # False: capacity_ah is the nominal, the first measurement replaces it
         self.remaining_ah = self.nominal_ah * initial_soc / 100
         self.efficiency = DEFAULT_EFFICIENCY
         self.current_offset = 0.0  # A the sensor reads at zero current (learned on float)
@@ -306,6 +307,7 @@ class BatteryTracker:
             return
         self.remaining_ah = data["remaining_ah"]
         self.capacity_ah = data["capacity_ah"]
+        self.capacity_measured = data.get("capacity_measured", False)
         self.efficiency = data["efficiency"]
         self.current_offset = data.get("current_offset", 0.0)
         self.load_ratio = data.get("load_ratio", DEFAULT_LOAD_RATIO)
@@ -324,6 +326,7 @@ class BatteryTracker:
             # A different battery (or a corrected rating): start learning from the new nominal.
             soc = self.soc
             self.capacity_ah = self.nominal_ah
+            self.capacity_measured = False
             self.remaining_ah = self.nominal_ah * soc / 100
             _LOGGER.info("Nominal capacity changed to %s Ah, learned capacity reset", self.nominal_ah)
 
@@ -331,6 +334,7 @@ class BatteryTracker:
         return {
             "remaining_ah": self.remaining_ah,
             "capacity_ah": self.capacity_ah,
+            "capacity_measured": self.capacity_measured,
             "nominal_ah": self.nominal_ah,
             "efficiency": self.efficiency,
             "current_offset": self.current_offset,
@@ -749,10 +753,10 @@ class BatteryTracker:
     def _empty_event(self, reason: str) -> None:
         if self.learn_capacity and self.anchor == ANCHOR_FULL:
             sample = self.cycle_out_ah - self.cycle_in_ah * self.efficiency
-            low, high = CAPACITY_RANGE
-            self.capacity_ah = self._learn(
-                "capacity", self.capacity_ah, sample, (low * self.nominal_ah, high * self.nominal_ah)
-            )
+            bounds = (CAPACITY_RANGE[0] * self.nominal_ah, CAPACITY_RANGE[1] * self.nominal_ah)
+            alpha = LEARN_ALPHA if self.capacity_measured else 1.0  # nothing to average the first one with
+            self.capacity_ah = self._learn("capacity", self.capacity_ah, sample, bounds, alpha)
+            self.capacity_measured = self.capacity_measured or bounds[0] <= sample <= bounds[1]
         _LOGGER.info("Battery empty (%s); drift %.1f Ah", reason, self.drift_ah)
         self.remaining_ah = 0.0
         self.anchor = ANCHOR_EMPTY
@@ -761,12 +765,12 @@ class BatteryTracker:
         self.hass.bus.async_fire(EVENT_EMPTY, {"entry_id": self.entry_id, "reason": reason})
 
     @staticmethod
-    def _learn(name: str, old: float, sample: float, bounds: tuple[float, float]) -> float:
+    def _learn(name: str, old: float, sample: float, bounds: tuple[float, float], alpha: float = LEARN_ALPHA) -> float:
         low, high = bounds
         if not low <= sample <= high:
             _LOGGER.warning("Ignoring implausible %s sample %.3f (allowed %.3f-%.3f)", name, sample, low, high)
             return old
-        new = old + LEARN_ALPHA * (sample - old)
+        new = old + alpha * (sample - old)
         _LOGGER.info("Learned %s: sample %.3f, %.3f -> %.3f", name, sample, old, new)
         return new
 

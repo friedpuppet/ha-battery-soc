@@ -83,8 +83,8 @@ async def test_inverter_shutdown_is_empty(hass: HomeAssistant, freezer: FrozenDa
     assert value(hass, SOC) == 0
     assert hass.states.get(STATUS).state == "off"
     assert hass.states.get(SOC).attributes["anchor"] == "empty"
-    # Discharged since full: 170 Ah + 180 s bridged at 20 A = 171 Ah; EMA from 200
-    assert value(hass, CAPACITY) == pytest.approx(191.3, abs=0.05)
+    # Discharged since full: 170 Ah + 180 s bridged at 20 A = 171 Ah; the first measurement replaces the nominal
+    assert value(hass, CAPACITY) == pytest.approx(171, abs=0.05)
 
     # Nothing accrues while the inverter is off.
     await advance(hass, freezer, 3600, step=600)
@@ -160,19 +160,42 @@ async def test_charge_from_empty_learns_efficiency(hass: HomeAssistant, freezer:
     await start_full(hass)
     await discharge_to_low(hass, freezer)
     await telemetry_gone(hass)
-    await advance(hass, freezer, 200, step=10)  # empty, capacity 191.3
+    await advance(hass, freezer, 200, step=10)  # empty, capacity 171
 
     hass.states.async_set(GRID, STATE_ON)
     hass.states.async_set(VOLTAGE, "27.0")
     hass.states.async_set(FULL, STATE_OFF)
     hass.states.async_set(CURRENT, "50")
     await hass.async_block_till_done()
-    await advance(hass, freezer, 4.4 * 3600, step=600)  # 220 Ah in
+    await advance(hass, freezer, 4 * 3600, step=600)  # 200 Ah in
     hass.states.async_set(FULL, STATE_ON)
     await hass.async_block_till_done()
-    # sample 191.3 / 220 = 0.8695; EMA from 0.95
-    assert value(hass, EFFICIENCY) == pytest.approx(92.6, abs=0.1)
+    # sample 171 / 200 = 0.855; EMA from 0.95
+    assert value(hass, EFFICIENCY) == pytest.approx(92.2, abs=0.1)
     assert value(hass, SOC) == 100
+
+
+async def test_only_the_first_capacity_measurement_replaces(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
+    await start_full(hass)
+    await discharge_to_low(hass, freezer)
+    await telemetry_gone(hass)
+    await advance(hass, freezer, 200, step=10)
+    assert value(hass, CAPACITY) == pytest.approx(171, abs=0.05)
+
+    hass.states.async_set(GRID, STATE_ON)
+    hass.states.async_set(VOLTAGE, "27.0")
+    hass.states.async_set(FULL, STATE_OFF)
+    hass.states.async_set(CURRENT, "50")
+    await hass.async_block_till_done()
+    await advance(hass, freezer, 3600, step=600)
+    hass.states.async_set(FULL, STATE_ON)
+    await hass.async_block_till_done()
+
+    await outage(hass, current=-20, voltage=25.6)
+    await advance(hass, freezer, 8 * 3600, step=600)  # 160 Ah out
+    await telemetry_gone(hass)
+    await advance(hass, freezer, 200, step=10)  # + 1 Ah bridged: 171 + 0.3 * (161 - 171)
+    assert value(hass, CAPACITY) == pytest.approx(168, abs=0.05)
 
 
 async def test_full_by_voltage_without_full_sensor(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
@@ -218,8 +241,8 @@ async def test_long_dropout_ends_at_shutdown_once_load_is_dark(
     assert len(events) == 1
     assert value(hass, SOC) == 0
     assert hass.states.get(STATUS).state == "off"
-    # 173.91 Ah out since full; EMA from 200
-    assert value(hass, CAPACITY) == pytest.approx(192.2, abs=0.05)
+    # 173.91 Ah out since full
+    assert value(hass, CAPACITY) == pytest.approx(173.91, abs=0.05)
 
 
 async def test_shunt_offset_is_learned_and_efficiency_stays_plausible(

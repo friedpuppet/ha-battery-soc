@@ -101,7 +101,8 @@ same fields as they were at boot, plus `pon: 1` for a power-on boot.
 
 ## Learning
 
-- **Capacity**: on *empty* after *full*, Ah out − (Ah in × efficiency) is the usable capacity.
+- **Capacity**: on *empty* after *full*, Ah out − (Ah in × efficiency) is the usable capacity. The
+  first such measurement replaces the nominal value; later ones are smoothed.
 - **Charge efficiency**: on *full* after *full*, Ah out / Ah in over the cycle; on *full* after
   *empty*, capacity / Ah in.
 
@@ -112,7 +113,7 @@ same fields as they were at boot, plus `pon: 1` for a power-on boot.
   Ah out / load Ah over the outage, if at least 10 Ah came out while both sensors reported;
   0.8–1.5, starts at 1.0.
 
-All are smoothed (EMA, weight 0.3 per sample). Cycles shorter than 10 % of the capacity are
+The rest are smoothed the same way (EMA, weight 0.3 per sample). Cycles shorter than 10 % of the capacity are
 skipped, and so are implausible results (capacity outside 50–120 % of nominal, efficiency outside
 80–100 %). Changing the nominal capacity resets the learned capacity.
 

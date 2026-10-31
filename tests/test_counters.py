@@ -116,8 +116,8 @@ async def test_power_on_boot_when_low_is_empty(hass: HomeAssistant, freezer: Fro
     await set_counters(hass, n=2, ao=172, ai=10)
     await set_boot(hass, 2, pon=True, ao=172)
     assert len(events) == 1
-    # 172 Ah out since full; EMA from 200
-    assert value(hass, CAPACITY) == pytest.approx(191.6, abs=0.05)
+    # 172 Ah out since full
+    assert value(hass, CAPACITY) == pytest.approx(172, abs=0.05)
     assert value(hass, REMAINING) == pytest.approx(9.5, abs=0.01)  # 10 Ah in at 0.95
     assert hass.states.get(SOC).attributes["anchor"] == "empty"
 
