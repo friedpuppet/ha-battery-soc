@@ -50,7 +50,9 @@ the never-reset Riemann sum `sensor.batareia_integrovanii_strum` / 200 × 100 an
 ## Status
 
 - Code and tests are done (`uv run pytest`: 41 green against HA 2026.8.3). CI (hassfest + pytest) green.
-  Latest release **v0.4.1** (2026-10-31: the first capacity measurement replaces the nominal instead of being
+  Latest release **v0.4.2** (2026-11-04: the state is written at least once a minute; before, `Store.async_delay_save`
+  was pushed back by every reading and wrote only on a clean stop, so the HA box losing power on 2026-11-04 restored
+  72.5 % from 2026-11-03 16:35 and lost the empty anchor). v0.4.1 (2026-10-31: the first capacity measurement replaces the nominal instead of being
   smoothed). v0.4.0 (2026-10-12: per-mode current corrections, charge +2.7 A, discharge 2.5 A + 0.3 A/°C ×
   (NTC2 − 40), set on the live entry with float-offset subtraction off; see `PLAN.md`). v0.3.0 (2026-10-08): counter
   mode, totals kept on the inverter's ESP. v0.2.0 added the

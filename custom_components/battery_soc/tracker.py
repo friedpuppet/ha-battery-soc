@@ -100,6 +100,8 @@ from .const import (
     OFFSET_MIN_SECONDS,
     OFFSET_RANGE,
     STORAGE_VERSION,
+    SAVE_DELAY,
+    SAVE_MAX_DELAY,
     TICK_SECONDS,
 )
 
@@ -791,6 +793,16 @@ class BatteryTracker:
 
     @callback
     def _changed(self) -> None:
-        self._store.async_delay_save(self._data, 10)
+        # Store.async_delay_save pushes its write back on every call, and the readings come
+        # every few seconds, so on its own it never wrote while running (only on a clean stop).
+        # Keep it for the final write on shutdown, and force a write at most SAVE_MAX_DELAY later.
+        self._store.async_delay_save(self._data, SAVE_DELAY)
+        if "save" not in self._timers:
+            self._start("save", SAVE_MAX_DELAY, self._async_save_due)
         for listener in list(self._listeners):
             listener()
+
+    @callback
+    def _async_save_due(self, _now: datetime) -> None:
+        self._timers.pop("save", None)
+        self.hass.async_create_task(self._store.async_save(self._data()))

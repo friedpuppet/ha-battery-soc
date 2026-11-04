@@ -75,6 +75,8 @@ LOAD_ON_POWER: Final = 10.0  # W; a load sensor above this means the inverter st
 COUNTER_FIELDS: Final = ("ai", "ao", "si", "so", "fa", "fs", "wi", "wo")
 IDLE_CURRENT: Final = 0.5  # A; below this the battery counts as idle
 TICK_SECONDS: Final = 10
+SAVE_DELAY: Final = 10  # s of quiet before the state is written
+SAVE_MAX_DELAY: Final = 60  # s; written at least this often while it keeps changing
 DISCHARGE_CORRECTION_RANGE: Final = (0.0, 10.0)  # A; the temperature term is clamped to this
 COUNTER_LIVE_SECONDS: Final = 120  # ESP totals that grew over at most this long follow the grid state
 
