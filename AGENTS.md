@@ -55,7 +55,7 @@ the never-reset Riemann sum `sensor.batareia_integrovanii_strum` / 200 × 100 an
   72.5 % from 2026-11-03 16:35 and lost the empty anchor). v0.4.1 (2026-10-31: the first capacity measurement replaces the nominal instead of being
   smoothed). v0.4.0 (2026-10-12: per-mode current corrections, charge +2.7 A, discharge 2.5 A + 0.3 A/°C ×
   (NTC2 − 40), set on the live entry with float-offset subtraction off; see `PLAN.md`). v0.3.0 (2026-10-08): counter
-  mode, totals kept on the inverter's ESP. v0.2.0 added the
+  mode, totals kept on the inverter's ESP (live since 2026-11-04). v0.2.0 added the
   load-power fallback, grid loss ending the float hold, and the learned shunt offset.
   Release via the GitHub API with the PAT below; `target_commitish` must be the full SHA. No `gh` CLI here. Bump `manifest.json` `version` (and `pyproject.toml`) with each release.
 - Repo: **[friedpuppet/ha-battery-soc](https://github.com/friedpuppet/ha-battery-soc)** (public, for HACS only;

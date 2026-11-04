@@ -101,10 +101,20 @@ Why: everything HA doesn't see is lost when it integrates the current itself (HA
 - ✅ `sensor.inverter_battery_counters` / `_boot` excluded from the recorder (`configuration.yaml`, backup `.bak-<ts>`).
 - ✅ v0.3.0 released and installed. Counter mode is implemented and tested, but the live entry **still uses the current
   sensor**.
-- ⏳ Compare for about a day. Δ(ai − ao) from the counters should match `battery_soc`'s own count
-  (`cycle_in_ah` / `cycle_out_ah`, Energy charged/discharged) within ~2 %.
-- ⏳ Then set the options of «Батарея»: counters = `sensor.inverter_battery_counters`, boot =
-  `sensor.inverter_battery_boot`. The first sight only sets the baseline, so the SoC does not jump.
+- ✅ Compared 2026-11-03 16:08–19:01 (a sampler every 60 s; the desktop running it shut down after 3 h, so discharge
+  only). Counters + per-mode corrections 73.23 Ah out, `battery_soc` 71.77 Ah (+2.0 %). All of the gap is in two
+  ~80 s ESP API dropouts (16:32:37–16:33:54, 16:35:37–16:36:57) at a steady ~31 A, which the current mode didn't
+  count; outside them 0.995–1.007. So the counters are the better source. Charge isn't compared yet: the HA box lost
+  power twice that night (see v0.4.2 below), so the two-point check was useless.
+- ✅ Options of «Батарея» set 2026-11-04 22:39 Kyiv (after v0.4.2): counters = `sensor.inverter_battery_counters`,
+  boot = `sensor.inverter_battery_boot`. No jump (125.7 → 125.6 Ah); the next 200 s: ESP 1.244 Ah with the correction,
+  `battery_soc` ~1.2 Ah. `counters_seen` is in the stored state.
+- ⏳ Charge in counter mode: check on the first empty→full or full→full cycle (efficiency, SoC at float).
+- ✅ v0.4.2 (found during the comparison): the state had not been written since 2026-11-03 16:35. `Store.async_delay_save`
+  is pushed back by every call, readings come every ~10 s, so it wrote only on a clean stop. The 15 h outage of
+  2026-11-03/04 drained HA's UPS; HA lost power twice, restored 72.5 % (06:19 jump 0 → 72.8 %) and lost the empty anchor
+  of ~21:44. Now a write is forced at most 60 s after a change (`SAVE_MAX_DELAY`). The inverter cycled on/off at empty
+  04:04–06:19: 19 ESP boots (n 6 → 25).
 - ⏳ Cold start check: the user briefly cuts the D1 mini's power. Expect `pon` 1 and `r` 0 or 6, and no empty anchor
   at a high SoC.
 - ⏳ Later: a real discharge to cut-off. Empty must appear only after the ESP comes back with `pon` 1.
