@@ -1,6 +1,6 @@
 # Inverter battery: the `battery_soc` integration
 
-Restored from the plan approved on 2026-10-07. Status markers: ✅ done, ⏳ pending.
+Restored from the plan approved on 2026-10-07. Status markers: ✅ done, ⏳ pending, ❌ cancelled.
 
 ## Context
 
@@ -168,19 +168,19 @@ The −1 A is an additive offset of the inverter's current sensor, at least in t
 
 ### Next steps
 
-1. ⏳ Clamp on the same cable, same orientation, during an outage (battery mode, −10…−25 A), 3–5 min, with 2–3 load
+1. ❌ (2026-10-12: clamp readings dropped, see «Meter-only analysis») Clamp on the same cable, same orientation, during an outage (battery mode, −10…−25 A), 3–5 min, with 2–3 load
    steps (kettle / microwave on-off) → offset and scale of the discharge reading.
-2. ⏳ The same during the bulk charge after the grid returns (~48 A, ideally into the taper and the first minute of
+2. ❌ (2026-10-12: clamp readings dropped, see «Meter-only analysis») The same during the bulk charge after the grid returns (~48 A, ideally into the taper and the first minute of
    float).
-3. ⏳ In each video, ~30 s with the clamp reversed on the cable: the reading must flip sign with the same magnitude;
+3. ❌ (2026-10-12: clamp readings dropped, see «Meter-only analysis») In each video, ~30 s with the clamp reversed on the cable: the reading must flip sign with the same magnitude;
    half the difference of |readings| is the clamp's own zero error.
-4. ⏳ Optional: the source of the 5/10 s dips — move the clamp and phone away from the ESP, or briefly power the ESP
+4. ❌ (2026-10-12: clamp readings dropped, see «Meter-only analysis») Optional: the source of the 5/10 s dips — move the clamp and phone away from the ESP, or briefly power the ESP
    off (only with the user's go-ahead: HA loses inverter telemetry meanwhile).
-5. ⏳ Analysis per video: read the display once per second, align with HA by the file-name time, fit
+5. ❌ (2026-10-12: clamp readings dropped, see «Meter-only analysis») Analysis per video: read the display once per second, align with HA by the file-name time, fit
    clamp = a + b × sensor per mode. Then decide in `battery_soc`: keep the single additive offset, or add a scale
    factor (charge and discharge may differ), and re-check the learned efficiency and `load_ratio` (0.993 looks
    low: with inverter losses the battery should give more than the load takes).
-6. ⏳ Optional: energy balance over a full→full cycle (Zigbee energy in − Atorch energy out = all losses), as a check
+6. ❌ (2026-10-12: clamp readings dropped, see «Meter-only analysis») Optional: energy balance over a full→full cycle (Zigbee energy in − Atorch energy out = all losses), as a check
    that doesn't depend on the battery current sensor at all.
 
 ### Clamp session 2 (2026-10-10): discharge, microwave, bulk charge
@@ -322,11 +322,11 @@ low (by ~1–2 A if efficiency is ~0.88–0.9). Better references:
 ### Next steps (updated)
 
 1. ✅ Per-30-min analysis of the outages against load and the NTCs (above).
-2. ⏳ Clamp videos during an outage: ~10 min, ~1 h and 2–3 h in, each with load steps (~250 / ~700 / ~1500–2000 W,
+2. ❌ (2026-10-12: clamp readings dropped, see «Meter-only analysis») Clamp videos during an outage: ~10 min, ~1 h and 2–3 h in, each with load steps (~250 / ~700 / ~1500–2000 W,
    30–40 s each); REL in the air before each, the cable away from the other one and pressed against the jaw
    tips (see the position check). Optional: in bulk ~1–1.5 h in and
    in the 28.4 V absorb phase. Optional clamp scale check: AC mode on a single live wire of a kettle vs Atorch.
-3. ⏳ Then change `battery_soc`: drop the single learned offset subtracted everywhere (it moves the discharge the wrong
+3. ✅ (v0.4.0, 2026-10-12, from the meter-only analysis instead of the clamp) Then change `battery_soc`: drop the single learned offset subtracted everywhere (it moves the discharge the wrong
    way: +1.03 A less discharge where ~2–4 A more is needed). Use per-mode corrections instead: float = hold 0
    (as now); charging = +c_chg; discharging = −c_dis (maybe load-dependent). Fixed options first, from the
    clamp; the cycle balance can tune c_dis afterwards. The ESP counters already keep the seconds of charge and
