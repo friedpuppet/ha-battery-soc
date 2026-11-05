@@ -109,7 +109,14 @@ Why: everything HA doesn't see is lost when it integrates the current itself (HA
 - ✅ Options of «Батарея» set 2026-11-04 22:39 Kyiv (after v0.4.2): counters = `sensor.inverter_battery_counters`,
   boot = `sensor.inverter_battery_boot`. No jump (125.7 → 125.6 Ah); the next 200 s: ESP 1.244 Ah with the correction,
   `battery_soc` ~1.2 Ah. `counters_seen` is in the stored state.
-- ⏳ Charge in counter mode: check on the first empty→full or full→full cycle (efficiency, SoC at float).
+- ✅ Charge in counter mode (2026-11-05): over the full→full cycle 11-05 03:30→14:48 Kyiv the counter mode counted
+  in 2.539 kWh / out 2.724 kWh; integrating the recorded current with the same corrections gives 2.539 / 2.725. So the
+  counter mode matches the current mode on charge as well; the store is written every minute.
+- ⏳ Calibration (not caused by the counter mode): both full anchors since the switch jumped ~90 → 100 % (03:30 from
+  90.3, 14:48 from 89.4). Out/in in Ah = 1.119 for that cycle (in 92.9 Ah, out 103.9 Ah), so the efficiency sample is
+  rejected (> 1.0) and 94.1 % stays. Before (10-26…11-02) the jumps were 2–5 %. Either the charge reads low or the
+  discharge reads high by ~12–15 %; deeper cycles (104 Ah out) and the smaller capacity (154.6 Ah) make it show more.
+  Not investigated yet.
 - ✅ v0.4.2 (found during the comparison): the state had not been written since 2026-11-03 16:35. `Store.async_delay_save`
   is pushed back by every call, readings come every ~10 s, so it wrote only on a clean stop. The 15 h outage of
   2026-11-03/04 drained HA's UPS; HA lost power twice, restored 72.5 % (06:19 jump 0 → 72.8 %) and lost the empty anchor
