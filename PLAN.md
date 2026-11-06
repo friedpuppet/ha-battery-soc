@@ -442,7 +442,7 @@ few hundred shallow on/off cycles, very few full ones.
   firmware measures the channels' offsets itself. Forum reports call PowMr current readings approximate. Allegro AN296182:
   FeSi-core open-loop Hall sensors have a hysteresis offset of typically ±2 A; LEM/DigiKey: such an offset has memory of
   the last current. No PowMr-specific study of the zero was found.
-- ✅ v0.4.3 installed 2026-11-06 (HACS by tag; the GitHub release object is not created yet). Live options:
+- ✅ v0.4.3 released and installed 2026-11-06. Live options:
   `learn_current_offset` on, `current_zero_reference_a` −0.9; per-mode corrections unchanged. The stored zero was the
   old EMA's −3.09 A (applied −2.19 A); the next float replaces it with its own settled mean. Check: live charge
   58.8 A raw → 63.68 A counted (= raw + 2.19 + 2.7).
