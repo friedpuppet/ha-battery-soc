@@ -424,3 +424,21 @@ few hundred shallow on/off cycles, very few full ones.
 - `docker stop homeassistant` did not write the final state either: the file kept the 06:45 values and 2.35 Ah of
   counted discharge was lost, until the next float.
 - Open: cell voltages from the BMS (current fell 48 → 2.4 A within minutes at 28.37 V, possible imbalance).
+
+## The current sensor's zero (2026-11-05/06)
+
+- The float mean raw current (≥ 30 min into float, true current ≈ 0) is the sensor's zero. 10-26…10-30: −0.4…−1.5 A;
+  10-31…11-03: +0.8…+3.3 A; 11-05: −3.3 A. The two large steps (+4.3 A, −4.1 A) both come with inverter power-ons
+  (`sensor.inverter_reset_reason` = Power On: 10-31 01:54; 11-03 15:26 … 11-04 22:36). Discharges of −87…−103 A
+  without a power-on moved the zero by ≤ 0.1 A, so core remanence from big currents is not the main cause here.
+- The error is additive, not a scale: in bulk the charger took the same input (grid − Atorch − 43.5 W) on 11-01…03 and
+  11-05 (1.91 / 1.89 kW), and the reading was 63.5 vs 58.6 A, i.e. true ≈ 61.6 A + zero (+2.0 / −3.3).
+- The float zero correlates with NTC2 within a period (+0.43…+0.50 A/°C), but extrapolating that to discharge (NTC2
+  15–20 °C lower) made the replay 3× worse (RMS 30 Ah). So it's a time-of-day coincidence, not a usable law.
+- Replay 10-26…11-05, 14 full→full cycles without a power-on, residual in·0.98 − out: current corrections RMS 12.8 Ah
+  (−12.9…+34.1); current corrections minus the zero's drift from −0.9 A: RMS 3.7 Ah (−5.1…+6.1). Cycles with a power-on
+  stay wrong until the next float measures the new zero.
+- Literature: PowMr manuals list "current offset is too high" faults for the inverter / DC-DC / PV current channels, so the
+  firmware measures the channels' offsets itself. Forum reports call PowMr current readings approximate. Allegro AN296182:
+  FeSi-core open-loop Hall sensors have a hysteresis offset of typically ±2 A; LEM/DigiKey: such an offset has memory of
+  the last current. No PowMr-specific study of the zero was found.
