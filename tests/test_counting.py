@@ -165,13 +165,13 @@ async def test_load_ratio_is_learned_per_outage(hass: HomeAssistant, freezer: Fr
 
 async def test_offset_is_subtracted(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
     await start_full(hass)
-    await advance(hass, freezer, 3600)  # one hour of float at -1.6 A
-    assert value(hass, OFFSET) == pytest.approx(-0.48, abs=0.005)
+    await advance(hass, freezer, 3600)  # one hour of float at -1.6 A: the second half-hour gives the zero
+    assert value(hass, OFFSET) == pytest.approx(-1.6, abs=0.005)
     assert value(hass, SOC) == 100
 
     await outage(hass, current=-20)
     await advance(hass, freezer, 3600)
-    assert value(hass, REMAINING) == pytest.approx(180.48, abs=0.05)
+    assert value(hass, REMAINING) == pytest.approx(181.6, abs=0.05)  # -20 A read, -18.4 A real
 
 
 async def test_state_from_v0_1_0_is_kept(

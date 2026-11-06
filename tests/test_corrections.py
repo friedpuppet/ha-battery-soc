@@ -54,7 +54,7 @@ async def test_discharge_and_charge_are_corrected(hass: HomeAssistant, freezer: 
     hass.states.async_set(TEMP, "45")
     await start_full(hass, CORRECTIONS)
     await advance(hass, freezer, 3600)  # an hour of float at -1.6 A
-    assert value(hass, OFFSET) == pytest.approx(-0.48, abs=0.005)  # tracked, not subtracted
+    assert value(hass, OFFSET) == pytest.approx(-1.6, abs=0.005)  # tracked, not subtracted
     assert value(hass, SOC) == 100
 
     await outage(hass, current=-20, voltage=25.0)

@@ -248,10 +248,10 @@ async def test_long_dropout_ends_at_shutdown_once_load_is_dark(
 async def test_shunt_offset_is_learned_and_efficiency_stays_plausible(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory
 ) -> None:
-    # The shunt reads 1 A low. On float that is all it shows; 10 hourly samples learn it.
+    # The shunt reads 1 A low. On float that is all it shows: the float's settled mean is the zero.
     await start_full(hass, float_current=-1.0)
     await advance(hass, freezer, 10 * 3600, step=600)
-    assert value(hass, OFFSET) == pytest.approx(-0.97, abs=0.005)
+    assert value(hass, OFFSET) == pytest.approx(-1.0, abs=0.005)
 
     await outage(hass, current=-21)  # really 20 A
     await advance(hass, freezer, 3 * 3600, step=600)
@@ -261,5 +261,5 @@ async def test_shunt_offset_is_learned_and_efficiency_stays_plausible(
     await advance(hass, freezer, 1.2 * 3600, step=600)
     hass.states.async_set(FULL, STATE_ON)
     await hass.async_block_till_done()
-    # 60.08 Ah out / 61.17 Ah in = 0.982 (uncorrected: 63 / 60 = 1.05, rejected); EMA from 0.95
-    assert value(hass, EFFICIENCY) == pytest.approx(96.0, abs=0.05)
+    # 60 Ah out / 61.2 Ah in = 0.980 (uncorrected: 63 / 60 = 1.05, rejected); EMA from 0.95
+    assert value(hass, EFFICIENCY) == pytest.approx(95.9, abs=0.05)

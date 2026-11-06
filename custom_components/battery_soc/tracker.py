@@ -70,6 +70,7 @@ from .const import (
     CONF_LEARN_CAPACITY,
     CONF_LEARN_EFFICIENCY,
     CONF_LEARN_OFFSET,
+    CONF_ZERO_REFERENCE,
     CONF_LOAD_ENTITY,
     CONF_LOW_SOC_HINT,
     CONF_LOW_VOLTAGE_HINT,
@@ -96,8 +97,8 @@ from .const import (
     LOAD_LEARN_MIN_AH,
     LOAD_ON_POWER,
     LOAD_RATIO_RANGE,
-    OFFSET_MAX_SECONDS,
     OFFSET_MIN_SECONDS,
+    OFFSET_SETTLE_SECONDS,
     OFFSET_RANGE,
     STORAGE_VERSION,
     SAVE_DELAY,
@@ -164,6 +165,7 @@ class BatteryTracker:
         self.learn_capacity = bool(opts[CONF_LEARN_CAPACITY])
         self.learn_efficiency = bool(opts[CONF_LEARN_EFFICIENCY])
         self.learn_offset = bool(opts[CONF_LEARN_OFFSET])
+        self.zero_reference = float(opts.get(CONF_ZERO_REFERENCE, 0.0))
         self.charge_correction = float(opts[CONF_CHARGE_CORRECTION])
         self.discharge_correction = float(opts[CONF_DISCHARGE_CORRECTION])
         self.discharge_temp_coeff = float(opts[CONF_DISCHARGE_TEMP_COEFF])
@@ -201,6 +203,7 @@ class BatteryTracker:
         self._last_ts: datetime = dt_util.utcnow()
         self._float_as = 0.0  # raw current integrated while holding (A*s) ...
         self._float_s = 0.0  # ... over this many seconds
+        self._float_elapsed = 0.0  # s of this float seen so far (the first OFFSET_SETTLE_SECONDS are skipped)
         self._outage_battery_ah = 0.0  # discharged during this outage while the load was known ...
         self._outage_load_ah = 0.0  # ... and the load power over the same time, in Ah
 
@@ -269,8 +272,12 @@ class BatteryTracker:
 
     @property
     def applied_offset(self) -> float:
-        """The float reading, subtracted from every reading only if that option is on."""
-        return self.current_offset if self.learn_offset else 0.0
+        """What is subtracted from every reading: the float zero's drift from the reference (if on).
+
+        The sensor's zero moves (it jumps when the inverter powers on and drifts between), while
+        the per-mode corrections were fitted at one zero; so only the difference is subtracted.
+        """
+        return self.current_offset - self.zero_reference if self.learn_offset else 0.0
 
     def discharge_correction_now(self) -> float:
         """A added to the discharge (as a magnitude), at the current temperature."""
@@ -631,10 +638,7 @@ class BatteryTracker:
             max(kwh_in + add_in * volts / 1000, 0.0),
             max(kwh_out + add_out * volts / 1000, 0.0),
         )
-        self._float_as += delta["fa"] * 3600
-        self._float_s += delta["fs"]
-        if self._float_s >= OFFSET_MAX_SECONDS:
-            self._learn_offset()
+        self._float_sample(delta["fa"] * 3600, delta["fs"])
 
     def _counter_corrections_ah(self, seconds_in: float, seconds_out: float) -> tuple[float, float]:
         """Ah the per-mode corrections add to a step of the ESP's totals: (charged, discharged).
@@ -657,10 +661,7 @@ class BatteryTracker:
         if self.holding:
             if self.current is not None:
                 seconds = (now - start).total_seconds()
-                self._float_as += self.current * seconds
-                self._float_s += seconds
-                if self._float_s >= OFFSET_MAX_SECONDS:
-                    self._learn_offset()
+                self._float_sample(self.current * seconds, seconds)
             return
         if self.current is not None:
             current = self._corrected(self.current)
@@ -709,17 +710,30 @@ class BatteryTracker:
         self.cycle_in_ah = self.cycle_out_ah = self.drift_ah = 0.0
 
     def _end_hold(self) -> None:
-        if self.holding:
-            self._learn_offset()
         self.holding = False
 
-    def _learn_offset(self) -> None:
-        """Track what the sensor reads on float (the battery current is ~0 then)."""
-        if self._float_s >= OFFSET_MIN_SECONDS:
-            self.current_offset = self._learn(
-                "current offset", self.current_offset, self._float_as / self._float_s, OFFSET_RANGE
-            )
-        self._float_as = self._float_s = 0.0
+    def _float_sample(self, amp_seconds: float, seconds: float) -> None:
+        """Raw reading on float, where the battery current is ~0: the sensor's zero.
+
+        The zero is the mean of this float period, skipping its first OFFSET_SETTLE_SECONDS, once
+        OFFSET_MIN_SECONDS of it are in. No averaging across floats: the zero jumps whenever the
+        inverter powers on, so an old float says little about the current one.
+        """
+        if seconds <= 0:
+            return
+        before, self._float_elapsed = self._float_elapsed, self._float_elapsed + seconds
+        settled = self._float_elapsed - max(before, OFFSET_SETTLE_SECONDS)
+        if settled <= 0:
+            return
+        share = min(settled / seconds, 1.0)
+        self._float_as += amp_seconds * share
+        self._float_s += seconds * share
+        if self._float_s < OFFSET_MIN_SECONDS:
+            return
+        sample = self._float_as / self._float_s
+        low, high = OFFSET_RANGE
+        if low <= sample <= high:
+            self.current_offset = sample
 
     def _learn_load_ratio(self) -> None:
         """Outage over: battery Ah out vs. the load's Ah over the same time."""
@@ -747,7 +761,7 @@ class BatteryTracker:
         self.last_full = dt_util.utcnow()
         self.holding = bool(self.full_entity)
         self.off = False
-        self._float_as = self._float_s = 0.0
+        self._float_as = self._float_s = self._float_elapsed = 0.0
         self._reset_cycle()
         self.hass.bus.async_fire(EVENT_FULL, {"entry_id": self.entry_id, "reason": reason})
 

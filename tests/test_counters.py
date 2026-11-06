@@ -156,10 +156,10 @@ async def test_unavailable_totals_are_ignored(hass: HomeAssistant, freezer: Froz
 async def test_offset_learned_from_float_totals(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
     await start_counting(hass)
     await set_counters(hass, fa=-1.0, fs=3600)  # an hour on float reading -1 A
-    assert value(hass, OFFSET) == pytest.approx(-0.3, abs=0.005)
+    assert value(hass, OFFSET) == pytest.approx(-1.0, abs=0.005)  # the settled half of the hour
     assert value(hass, SOC) == 100
 
     await outage(hass, current=-21)
     await set_counters(hass, fa=-1.0, fs=3600, ao=21, so=3600)
-    # 21 Ah read, 0.3 Ah of it is the offset
-    assert value(hass, REMAINING) == pytest.approx(179.3, abs=0.01)
+    # 21 Ah read, 1 Ah of it is the offset
+    assert value(hass, REMAINING) == pytest.approx(180.0, abs=0.01)

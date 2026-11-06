@@ -35,9 +35,12 @@ re-anchors the count at the two moments it can actually detect: **full** and **e
   voltage, and the shunt mostly shows its own offset, which would otherwise look like a slow
   discharge. If the full sensor drops to `unavailable`, the hold continues; it ends when the
   full sensor turns `off` or when the grid goes `off` (there is no float without the grid).
-- **Float offset**: what the current sensor reads on float is tracked. With *Subtract the float
-  reading* on (the default), it is taken as a fixed zero offset and subtracted from every reading
-  outside float.
+- **Float offset**: what the current sensor reads on float is its zero, and it is tracked. With
+  *Subtract the float reading* on (the default), the zero's difference from the *reference zero*
+  (default 0, i.e. the whole reading) is subtracted from every reading outside float. Some sensors'
+  zero moves: the author's PowMr inverter re-zeroes when it powers on (steps of ±3–4 A) and drifts
+  between. With per-mode corrections, set the reference to the float reading they were fitted at,
+  so that only the later drift is removed.
 - **Per-mode corrections** (options, all 0 by default), for sensors whose error depends on the
   mode rather than being a fixed offset. They are added to the reading after the float offset:
   - *charge correction* (A) while the grid is present and the battery is not full;
@@ -106,8 +109,9 @@ same fields as they were at boot, plus `pon: 1` for a power-on boot.
 - **Charge efficiency**: on *full* after *full*, Ah out / Ah in over the cycle; on *full* after
   *empty*, capacity / Ah in.
 
-- **Current offset** (the float reading): the mean current on float, once per hour of float (or
-  when a float of at least 30 min ends); ±5 A at most. Always tracked; subtracting it can be turned
+- **Current offset** (the float reading): the mean current of the current float, skipping its first
+  30 min, once 30 min of it are in; it is replaced on every float rather than averaged, because the
+  zero jumps when the inverter powers on. ±5 A at most. Always tracked; subtracting it can be turned
   off in the options.
 - **Load ratio** (battery W per load W, covers the inverter's losses): on every grid return, battery
   Ah out / load Ah over the outage, if at least 10 Ah came out while both sensors reported;

@@ -29,6 +29,8 @@ CONF_MAX_GAP: Final = "max_gap_s"
 CONF_LEARN_CAPACITY: Final = "learn_capacity"
 CONF_LEARN_EFFICIENCY: Final = "learn_efficiency"
 CONF_LEARN_OFFSET: Final = "learn_current_offset"  # subtract the float reading (it is always tracked)
+# The zero the per-mode corrections were fitted at: only the float zero's drift from it is subtracted
+CONF_ZERO_REFERENCE: Final = "current_zero_reference_a"
 # Per-mode corrections added to the sensor's reading (A): grid present and not full = charging,
 # grid out = discharging (its correction may follow a temperature)
 CONF_CHARGE_CORRECTION: Final = "charge_correction_a"
@@ -54,6 +56,7 @@ DEFAULTS: Final = {
     CONF_LEARN_CAPACITY: True,
     CONF_LEARN_EFFICIENCY: True,
     CONF_LEARN_OFFSET: True,
+    CONF_ZERO_REFERENCE: 0.0,
     CONF_CHARGE_CORRECTION: 0.0,
     CONF_DISCHARGE_CORRECTION: 0.0,
     CONF_DISCHARGE_TEMP_COEFF: 0.0,
@@ -66,8 +69,8 @@ CAPACITY_RANGE: Final = (0.50, 1.20)  # of nominal
 LEARN_ALPHA: Final = 0.3  # EMA weight of a new cycle
 LEARN_MIN_CYCLE: Final = 0.10  # of capacity; shorter cycles teach nothing
 OFFSET_RANGE: Final = (-5.0, 5.0)  # A
-OFFSET_MIN_SECONDS: Final = 1800  # of float per offset sample
-OFFSET_MAX_SECONDS: Final = 3600  # a long float gives one sample per hour
+OFFSET_SETTLE_SECONDS: Final = 1800  # the start of each float is skipped (the current still settles)
+OFFSET_MIN_SECONDS: Final = 1800  # of settled float before its mean replaces the zero
 DEFAULT_LOAD_RATIO: Final = 1.0  # battery W per load W
 LOAD_RATIO_RANGE: Final = (0.8, 1.5)
 LOAD_LEARN_MIN_AH: Final = 10.0  # discharged per outage to learn the load ratio
